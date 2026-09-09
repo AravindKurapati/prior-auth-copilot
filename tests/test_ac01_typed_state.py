@@ -33,5 +33,8 @@ def test_factory_seeds_collections():
     assert s["working_memory"] == {}
 
 
-def test_reducer_fields_declared():
+def test_reducer_fields_derived_from_annotations():
+    # Derived by introspecting PACaseState's Annotated[..., <reducer>] metadata,
+    # so this actually verifies the wiring rather than comparing a literal to itself.
+    assert {"messages", "route_history", "tool_failures"} <= REDUCER_FIELDS
     assert REDUCER_FIELDS == {"messages", "route_history", "tool_failures"}

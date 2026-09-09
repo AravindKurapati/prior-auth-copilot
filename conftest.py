@@ -29,5 +29,5 @@ with warnings.catch_warnings(record=True):
     try:
         import langgraph.graph  # noqa: F401
         import langgraph.checkpoint.sqlite  # noqa: F401
-    except Exception:  # pragma: no cover - defensive; langgraph should import fine
+    except ImportError:  # pragma: no cover - defensive; langgraph should import fine
         pass

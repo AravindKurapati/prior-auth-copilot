@@ -69,3 +69,14 @@ class RouteStep(BaseModel):
     to_node: str
     reason: str
     ts: str
+
+
+class SampleSubmission(BaseModel):
+    """Shape of a committed `data/samples/*.json` file — the pre-parse provider
+    submission PR7's `pac submit` reads before intake produces a `PARequest`."""
+
+    case_id: str
+    session_id: str
+    member_id: str
+    raw_provider_text: str
+    structured: dict

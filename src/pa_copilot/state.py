@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import operator
+import typing
 from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import AnyMessage
@@ -16,7 +17,7 @@ from pa_copilot.schemas import (
     ToolFailure,
 )
 
-REDUCER_FIELDS: set[str] = {"messages", "route_history", "tool_failures"}
+_REDUCERS = (operator.add, add_messages)
 
 
 class PACaseState(TypedDict, total=False):
@@ -40,6 +41,20 @@ class PACaseState(TypedDict, total=False):
     tool_failures: Annotated[list[ToolFailure], operator.add]
     working_memory: dict[str, Any]
     context: dict[str, Any]
+
+
+def _derive_reducer_fields() -> set[str]:
+    """The append-reduced fields, read straight off `PACaseState`'s
+    `Annotated[..., <reducer>]` metadata rather than a hand-maintained literal."""
+    hints = typing.get_type_hints(PACaseState, include_extras=True)
+    fields: set[str] = set()
+    for name, hint in hints.items():
+        if any(meta in _REDUCERS for meta in typing.get_args(hint)[1:]):
+            fields.add(name)
+    return fields
+
+
+REDUCER_FIELDS: set[str] = _derive_reducer_fields()
 
 
 def new_case_state(
