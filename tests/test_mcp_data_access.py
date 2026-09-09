@@ -15,6 +15,10 @@ def test_benefit_hit_and_miss():
     not_covered = da.benefit_lookup("M100001", "99999")
     assert not_covered["covered"] is False
 
+    # genuine found-but-not-covered branch (M100003's EGD entry has covered: false)
+    listed_not_covered = da.benefit_lookup("M100003", "43239")
+    assert listed_not_covered["found"] is True and listed_not_covered["covered"] is False
+
 
 def test_provider_hit_and_miss():
     hit = da.provider_lookup("1093817465")
@@ -32,6 +36,9 @@ def test_criteria_indeterminate_excluded_and_not_found():
 
     nf = da.criteria_check("00000", [])
     assert nf["status"] == "not_found" and nf["found"] is False
+
+    # a None diagnosis list must not raise (knee_scope_missing_info sample omits it)
+    assert da.criteria_check("72148", None)["status"] == "indeterminate"
 
 
 def test_policy_resource_helpers():

@@ -14,19 +14,21 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Literal
 
-from pa_copilot.config import load_settings
-
-CriteriaStatus = Literal["not_found", "excluded", "indeterminate"]
+from pa_copilot.config import get_settings
 
 _CORPORA_CACHE: dict[str, dict] = {}
 
 
 def _synthetic_dir(synthetic_dir: str | Path | None) -> Path:
     if synthetic_dir is None:
-        synthetic_dir = load_settings(env_file=None).synthetic_dir
+        synthetic_dir = get_settings().synthetic_dir
     return Path(synthetic_dir)
+
+
+def clear_corpora_cache() -> None:
+    """Drop the module-level parsed-corpus cache (test ergonomics)."""
+    _CORPORA_CACHE.clear()
 
 
 def load_corpora(synthetic_dir: str | Path | None = None) -> dict:
@@ -165,7 +167,7 @@ def criteria_check(
         "excluded_diagnoses": excluded_diagnoses,
     }
 
-    for code in diagnosis_codes:
+    for code in (diagnosis_codes or []):
         if code in excluded_diagnoses:
             return {
                 **base,
