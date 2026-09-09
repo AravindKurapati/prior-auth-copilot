@@ -1,0 +1,12 @@
+{
+  "case_id": "case-knee-01",
+  "session_id": "sess-knee-01",
+  "member_id": "M100002",
+  "raw_provider_text": "Prior auth request: knee arthroscopy with meniscectomy (29881), left knee. Patient reports locking and giving way. Provider NPI 1487206395. No diagnosis code supplied on the order.",
+  "structured": {
+    "service_code": "29881",
+    "requested_units": 1,
+    "place_of_service": "outpatient",
+    "provider_npi": "1487206395"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "case_id": "case-egd-01",
+  "session_id": "sess-egd-01",
+  "member_id": "M100003",
+  "raw_provider_text": "Requesting upper GI endoscopy with biopsy (43239) for refractory dyspepsia after a 10-week PPI trial. DX K30. Provider NPI 1720394856.",
+  "structured": {
+    "service_code": "43239",
+    "diagnosis_codes": [
+      "K30"
+    ],
+    "requested_units": 1,
+    "place_of_service": "outpatient",
+    "provider_npi": "1720394856"
+  }
+}
