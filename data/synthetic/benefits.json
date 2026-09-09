@@ -11,6 +11,11 @@
         "covered": true,
         "requires_pa": true,
         "network_status": "in_network"
+      },
+      "J0178": {
+        "covered": true,
+        "requires_pa": false,
+        "network_status": "in_network"
       }
     }
   },

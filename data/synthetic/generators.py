@@ -11,7 +11,7 @@ build_providers()      {npi: {name, specialty, network_status}}        (4 provid
 build_criteria()       {policy_id: {service_code, title, required_conditions,
                                     exclusions, evidence_requirements}}  (6 policies)
 build_clinical_guidance()  {filename: markdown_text}                    (1 per policy)
-build_samples()        {name: request_dict}                            (5 scenarios)
+build_samples()        {name: request_dict}                            (7 scenarios)
 """
 
 from __future__ import annotations
@@ -33,9 +33,12 @@ def build_benefits() -> dict:
     """Four synthetic members M100001..M100004 and what their plan covers.
 
     - M100001 covers 72148 with requires_pa=True -> drives `mri_lumbar_clearcut`.
+    - M100001 covers J0178 with requires_pa=False -> drives `no_pa_required` (short-circuit).
     - M100002 covers 29881 with requires_pa=True -> drives `knee_scope_missing_info`.
     - M100003 lists 43239 with covered=False    -> drives `egd_not_covered`.
     - M100004 covers 95810 with requires_pa=True -> drives `psg_indeterminate`.
+
+    No member is `M900000`; that id drives `unknown_member` (lookup miss).
     """
     return {
         "M100001": {
@@ -43,6 +46,7 @@ def build_benefits() -> dict:
             "covered_services": {
                 "72148": {"covered": True, "requires_pa": True, "network_status": "in_network"},
                 "64483": {"covered": True, "requires_pa": True, "network_status": "in_network"},
+                "J0178": {"covered": True, "requires_pa": False, "network_status": "in_network"},
             },
         },
         "M100002": {
@@ -205,20 +209,29 @@ _GUIDANCE_BODY: dict[str, str] = {
         "- A repeat study within 12 months when nothing clinically has changed.\n"
     ),
     "PA-KNEE-SCOPE": (
-        "Arthroscopic meniscectomy helps patients whose knee mechanically locks or gives "
-        "way because of a torn meniscus. It does not reliably help degenerative arthritis, "
-        "so the distinction drives the decision.\n\n"
+        "Arthroscopic partial meniscectomy helps patients whose knee mechanically locks, "
+        "catches, or gives way because of a symptomatic meniscal tear. Multiple randomized "
+        "trials show it does not reliably outperform structured physical therapy for "
+        "degenerative meniscal change or osteoarthritis without true mechanical symptoms, so "
+        "separating a mechanically unstable knee from painful arthritis is the decision that "
+        "matters and the note should make that distinction explicit.\n\n"
         "## Indications\n\n"
-        "- Mechanical symptoms (locking, catching, true giving way) that persist despite "
-        "conservative treatment.\n"
-        "- Imaging or a positive exam consistent with a meniscal tear.\n\n"
+        "- Mechanical symptoms (locking, catching, true giving way, or an inability to fully "
+        "extend the knee) that persist despite conservative treatment.\n"
+        "- MRI or a positive provocative exam (for example a positive McMurray) consistent "
+        "with a meniscal tear that correlates with the patient's symptoms.\n"
+        "- Effusion or joint-line tenderness localizing to the involved compartment.\n\n"
         "## Step therapy\n\n"
         "Expect a documented trial of physical therapy, activity modification, and "
-        "analgesics over roughly three months before surgery, unless the knee is locked "
-        "and cannot be straightened.\n\n"
+        "analgesics or anti-inflammatories over roughly three months before surgery, with "
+        "dates and the response recorded. A locked knee that cannot be straightened is the "
+        "exception and may proceed without the full conservative course. Vague statements "
+        "such as \"failed conservative care\" without dates route to the reviewer.\n\n"
         "## Exclusions\n\n"
-        "- Isolated degenerative osteoarthritis without mechanical symptoms.\n"
-        "- No conservative care attempted in the prior three months.\n"
+        "- Isolated degenerative osteoarthritis or a degenerative tear without mechanical "
+        "symptoms.\n"
+        "- No trial of conservative care in the prior three months and no locked knee.\n"
+        "- Advanced tricompartmental arthritis where arthroplasty is the appropriate step.\n"
     ),
     "PA-AFLIBERCEPT": (
         "Aflibercept is an anti-VEGF agent for specific retinal conditions with confirmed "
@@ -245,21 +258,30 @@ _GUIDANCE_BODY: dict[str, str] = {
     ),
     "PA-PSG": (
         "Attended in-lab polysomnography is reserved for patients who cannot be evaluated "
-        "reliably with a home sleep apnea test. Much of this policy needs narrative "
-        "interpretation, so borderline cases belong with a human reviewer.\n\n"
+        "reliably with a home sleep apnea test, or whose home test was technically "
+        "inadequate or negative despite a strong clinical picture. Home testing is the "
+        "default first study for uncomplicated suspected obstructive sleep apnea because it "
+        "is cheaper and more accessible. Much of this policy turns on clinical judgment "
+        "about pretest probability and comorbidity, so borderline cases with thin "
+        "documentation belong with a human reviewer rather than an automated decision.\n\n"
         "## Indications\n\n"
-        "- Symptoms of obstructive sleep apnea (habitual snoring, witnessed apneas, "
-        "excessive daytime sleepiness) with at least moderate pretest probability.\n"
-        "- A comorbidity (significant heart failure, COPD, neuromuscular disease) that makes "
-        "home testing unreliable.\n\n"
+        "- Symptoms of obstructive sleep apnea (habitual snoring, witnessed apneas, gasping "
+        "arousals, excessive daytime sleepiness) with at least moderate pretest probability, "
+        "ideally supported by a validated screening tool such as STOP-BANG or the Epworth "
+        "Sleepiness Scale.\n"
+        "- A comorbidity (moderate-to-severe heart failure, significant chronic lung "
+        "disease, prior stroke, or neuromuscular disease) that makes home testing "
+        "unreliable.\n"
+        "- A prior negative or technically failed home sleep study with persistent "
+        "symptoms.\n\n"
         "## Step therapy\n\n"
-        "There is no medication step. The gate is whether a home study is a reasonable "
-        "first test. If the note does not address that question, the criteria are "
-        "indeterminate and the request should be interpreted against this guidance rather "
-        "than auto-decided.\n\n"
+        "There is no medication step. The gate is whether a home study is a reasonable first "
+        "test. If the note does not address that question, or does not record a screening "
+        "score or a qualifying comorbidity, the criteria are indeterminate and the request "
+        "should be interpreted against this guidance rather than auto-decided.\n\n"
         "## Exclusions\n\n"
         "- Home sleep apnea testing is appropriate and no disqualifying comorbidity exists.\n"
-        "- Repeat study within 12 months without a change in weight or therapy.\n"
+        "- Repeat study within 12 months without a change in weight, symptoms, or therapy.\n"
     ),
     "PA-EGD": (
         "Diagnostic upper endoscopy is driven by alarm features or by dyspepsia that has "
@@ -333,10 +355,13 @@ def build_clinical_guidance() -> dict[str, str]:
 
 
 def build_samples() -> dict[str, dict]:
-    """Five raw provider submissions, each shaped like the `sample_request` fixture.
+    """Seven raw provider submissions, each shaped like the `sample_request` fixture.
 
     NOTE: this is the pre-parse provider submission shape, not a valid `PARequest`.
     `knee_scope_missing_info["structured"]` deliberately omits `diagnosis_codes`.
+    `no_pa_required` resolves to a covered service with `requires_pa=False` (benefit
+    check short-circuits). `unknown_member` uses a member id and NPI absent from the
+    synthetic corpora (intake flags, pipeline degrades gracefully).
     """
     return {
         "mri_lumbar_clearcut": {
@@ -405,6 +430,40 @@ def build_samples() -> dict[str, dict]:
                 "requested_units": 1,
                 "place_of_service": "outpatient",
                 "provider_npi": "1265498730",
+            },
+        },
+        "no_pa_required": {
+            "case_id": "case-nopa-01",
+            "session_id": "sess-nopa-01",
+            "member_id": "M100001",
+            "raw_provider_text": (
+                "Prior auth check for aflibercept intravitreal injection (J0178), right eye, "
+                "for neovascular AMD confirmed on OCT with active subretinal fluid. DX H35.32. "
+                "Ordering provider NPI 1093817465."
+            ),
+            "structured": {
+                "service_code": "J0178",
+                "diagnosis_codes": ["H35.32"],
+                "requested_units": 1,
+                "place_of_service": "outpatient",
+                "provider_npi": "1093817465",
+            },
+        },
+        "unknown_member": {
+            "case_id": "case-unknown-01",
+            "session_id": "sess-unknown-01",
+            "member_id": "M900000",
+            "raw_provider_text": (
+                "Requesting MRI lumbar spine (72148) for chronic low back pain with "
+                "radiculopathy after 7 weeks of physical therapy. DX M54.16. Ordering "
+                "provider NPI 1999999999."
+            ),
+            "structured": {
+                "service_code": "72148",
+                "diagnosis_codes": ["M54.16"],
+                "requested_units": 1,
+                "place_of_service": "outpatient",
+                "provider_npi": "1999999999",
             },
         },
         "injection_prompt_injection": {
