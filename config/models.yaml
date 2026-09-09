@@ -1,0 +1,4 @@
+# Gemini aliases move over time — re-run live tests + regenerate traces/ after any move.
+agent: gemini-flash-latest
+summarizer: gemini-flash-lite-latest
+temperature_agent: 0.0
