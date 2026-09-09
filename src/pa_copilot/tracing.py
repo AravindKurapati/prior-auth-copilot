@@ -25,7 +25,10 @@ def redact(obj: Any, secrets: Iterable[str]) -> Any:
     if isinstance(obj, str):
         return _scrub_str(obj)
     if isinstance(obj, dict):
-        return {k: redact(v, secret_list) for k, v in obj.items()}
+        return {
+            (_scrub_str(k) if isinstance(k, str) else k): redact(v, secret_list)
+            for k, v in obj.items()
+        }
     if isinstance(obj, (list, tuple)):
         return [redact(v, secret_list) for v in obj]
     return obj
@@ -52,9 +55,11 @@ class RunTracer:
             "events": self.events,
             "decision": decision,
         }
+        # Normalize to JSON-safe primitives before redacting to catch non-primitive values
+        doc = json.loads(json.dumps(doc, default=str))
         doc = redact(doc, self.redact_values)
         path = self.trace_dir / f"{self.case_id}.json"
-        path.write_text(json.dumps(doc, indent=2, default=str))
+        path.write_text(json.dumps(doc, indent=2))
         return path
 
 

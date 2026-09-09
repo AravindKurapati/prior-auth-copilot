@@ -38,7 +38,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -p no:warnings"
 pythonpath = ["."]
 asyncio_default_fixture_loop_scope = "function"
 markers = ["slow: needs a model download or a live Gemini API key"]
