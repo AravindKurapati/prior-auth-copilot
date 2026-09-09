@@ -52,3 +52,11 @@ def test_unknown_member_sample_misses_every_corpus():
 def test_clinical_guidance_one_doc_per_policy():
     docs = g.build_clinical_guidance()
     assert len(docs) == len(g.SERVICES)
+
+
+def test_criteria_have_structured_diagnosis_exclusions():
+    criteria = g.build_criteria()
+    for pol in criteria.values():
+        assert isinstance(pol["excluded_diagnoses"], list)
+    assert "M54.5" in criteria["PA-MRI-LUMBAR"]["excluded_diagnoses"]
+    assert criteria["PA-PSG"]["excluded_diagnoses"] == []
