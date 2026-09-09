@@ -34,8 +34,9 @@ flagged, with the reason they could not be decided automatically.
 
 1. **Every sample request produces a defensible output.** Each of the five sample
    requests yields a schema-valid `PADecision` that carries at least one cited criterion,
-   or an explicit `indeterminate` disposition plus a referral to human review. No sample
-   ever produces an unsupported determination.
+   or a `refer_clinical_review` disposition (with `criteria_status="indeterminate"` in the
+   necessity assessment) to route for human review. No sample ever produces an unsupported
+   determination.
 2. **Clear-cut approvals are direct.** A request whose criteria are plainly met
    (`mri_lumbar_clearcut`) reaches an approve draft without a `human_review` detour.
 3. **Uncertainty routes to a human.** Ambiguous criteria (`psg_indeterminate`), low model

@@ -41,11 +41,7 @@ testpaths = ["tests"]
 addopts = "-q"
 pythonpath = ["."]
 asyncio_default_fixture_loop_scope = "function"
-filterwarnings = [
-    "error",
-    "ignore::PendingDeprecationWarning:langgraph",
-    "ignore::DeprecationWarning:langgraph",
-]
+filterwarnings = ["error"]
 markers = ["slow: needs a model download or a live Gemini API key"]
 
 [tool.ruff]

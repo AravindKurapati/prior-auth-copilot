@@ -223,14 +223,22 @@ _GUIDANCE_BODY: dict[str, str] = {
     "PA-AFLIBERCEPT": (
         "Aflibercept is an anti-VEGF agent for specific retinal conditions with confirmed "
         "active disease on imaging. Coverage tracks the diagnosis and the imaging evidence, "
-        "not the drug alone.\n\n"
+        "not the drug alone. The patient must have failed or be ineligible for first-line "
+        "anti-VEGF therapy in many plans; documentation of prior treatments strengthens "
+        "medical necessity.\n\n"
         "## Indications\n\n"
-        "- Neovascular age-related macular degeneration, diabetic macular edema, or macular "
-        "edema after a retinal vein occlusion.\n"
-        "- OCT or fluorescein angiography showing active exudation or fluid.\n\n"
+        "- Neovascular age-related macular degeneration with subfoveal or juxtafoveal "
+        "involvement.\n"
+        "- Diabetic macular edema with central retinal thickness >300 micrometers on OCT.\n"
+        "- Macular edema following a branch or central retinal vein occlusion.\n"
+        "- OCT or fluorescein angiography showing active exudation or fluid in the macular "
+        "region.\n\n"
         "## Step therapy\n\n"
-        "Payers may ask about prior anti-VEGF agents and the response, but a step-through is "
-        "not universally required; capture what was tried so the reviewer can judge.\n\n"
+        "Document prior anti-VEGF agents (bevacizumab, ranibizumab, brolucizumab) attempted "
+        "in the same eye, the dates and duration of therapy, the response (improvement, "
+        "stability, progression), and the reason for switching if applicable. A step-through "
+        "to aflibercept is not universally required but captured history allows the reviewer "
+        "to assess medical necessity correctly.\n\n"
         "## Exclusions\n\n"
         "- Active ocular or periocular infection.\n"
         "- Any indication outside the approved retinal conditions.\n"
@@ -255,32 +263,51 @@ _GUIDANCE_BODY: dict[str, str] = {
     ),
     "PA-EGD": (
         "Diagnostic upper endoscopy is driven by alarm features or by dyspepsia that has "
-        "not responded to acid suppression. Age and risk profile matter.\n\n"
+        "not responded to acid suppression. Age and risk profile matter significantly. "
+        "For younger patients with uncomplicated dyspepsia, medical management is preferred "
+        "before invasive evaluation. In older patients or those with red-flag symptoms, "
+        "endoscopy may be indicated earlier.\n\n"
         "## Indications\n\n"
-        "- Dysphagia, gastrointestinal bleeding, unintentional weight loss, or iron-"
-        "deficiency anemia.\n"
-        "- Dyspepsia that persists after 4-8 weeks of proton pump inhibitor therapy.\n\n"
+        "- Dysphagia (difficulty swallowing) or odynophagia (painful swallowing).\n"
+        "- Gastrointestinal bleeding, including melena, hematemesis, or heme-positive stool.\n"
+        "- Unintentional weight loss greater than 5% in a short timeframe.\n"
+        "- Iron-deficiency anemia with microcytic indices and a positive fecal occult blood.\n"
+        "- Dyspepsia that persists after 4-8 weeks of adequate proton pump inhibitor therapy "
+        "at a standard dose.\n\n"
         "## Step therapy\n\n"
         "For uninvestigated dyspepsia without alarm features, a PPI trial (and H. pylori "
-        "test-and-treat where relevant) is expected first, particularly under age 60.\n\n"
+        "test-and-treat where relevant) is required first, particularly in patients under "
+        "age 60. Document the PPI name, dose, start date, end date, and the patient's "
+        "response or lack thereof. For patients with alarm features, endoscopy may be "
+        "indicated without a prior PPI trial.\n\n"
         "## Exclusions\n\n"
-        "- Uninvestigated dyspepsia under age 60, no alarm features, no PPI trial.\n"
-        "- Surveillance at an interval shorter than guidelines recommend.\n"
+        "- Uninvestigated dyspepsia under age 60 without alarm features and without a PPI trial.\n"
+        "- Surveillance endoscopy at an interval shorter than guidelines recommend (usually "
+        "3-5 years for uncomplicated findings).\n"
     ),
     "PA-TFESI": (
         "A lumbar transforaminal epidural steroid injection targets an inflamed nerve root "
-        "that imaging confirms is compressed and that explains the patient's leg pain.\n\n"
+        "that imaging confirms is compressed and that explains the patient's leg pain. The "
+        "procedure delivers medication directly to the site of nerve compression, providing "
+        "local anti-inflammatory effect. It is a bridge therapy, not a long-term solution; "
+        "cumulative injections and patient age must be considered.\n\n"
         "## Indications\n\n"
-        "- Dermatomal radicular pain matching an imaging-confirmed level of nerve root "
-        "compression.\n"
-        "- At least four weeks of conservative therapy without adequate relief.\n\n"
+        "- Dermatomal radicular pain (sharp, shooting, burning leg pain in a single nerve "
+        "distribution) matching an imaging-confirmed level of nerve root compression.\n"
+        "- At least four weeks of conservative therapy (physical therapy, NSAIDs, muscle "
+        "relaxants, activity modification) without adequate relief.\n"
+        "- MRI, CT, or other structural imaging confirming disk herniation, stenosis, or "
+        "foraminal narrowing at the symptomatic level.\n\n"
         "## Step therapy\n\n"
-        "Document the conservative measures and pain scores before and after. Track prior "
-        "injections at the same level; more than three in a rolling twelve months is "
-        "outside policy.\n\n"
+        "Document the dates and types of conservative measures, pain scores before and after "
+        "conservative care, any improvement or plateau, and the specific imaging findings. "
+        "Track all prior injections at the same level and the dates; more than three in a "
+        "rolling twelve months falls outside policy and should be flagged. A gap of at least "
+        "12 weeks between injections at the same level is typical.\n\n"
         "## Exclusions\n\n"
-        "- Systemic infection or a bleeding diathesis.\n"
-        "- A fourth same-level injection within twelve months.\n"
+        "- Systemic infection (bacteremia, sepsis) or active bleeding diathesis.\n"
+        "- A fourth or subsequent same-level injection within a rolling twelve-month period.\n"
+        "- Anticoagulation that cannot be safely interrupted or bridged.\n"
     ),
 }
 
@@ -415,12 +442,20 @@ def write_all(root: Path) -> None:
     guidance_dir.mkdir(parents=True, exist_ok=True)
     samples_dir.mkdir(parents=True, exist_ok=True)
 
-    (syn / "benefits.json").write_text(json.dumps(build_benefits(), indent=2) + "\n")
-    (syn / "providers.json").write_text(json.dumps(build_providers(), indent=2) + "\n")
-    (syn / "criteria.json").write_text(json.dumps(build_criteria(), indent=2) + "\n")
+    (syn / "benefits.json").write_text(
+        json.dumps(build_benefits(), indent=2) + "\n", encoding="utf-8", newline="\n"
+    )
+    (syn / "providers.json").write_text(
+        json.dumps(build_providers(), indent=2) + "\n", encoding="utf-8", newline="\n"
+    )
+    (syn / "criteria.json").write_text(
+        json.dumps(build_criteria(), indent=2) + "\n", encoding="utf-8", newline="\n"
+    )
 
     for filename, text in build_clinical_guidance().items():
-        (guidance_dir / filename).write_text(text)
+        (guidance_dir / filename).write_text(text, encoding="utf-8", newline="\n")
 
     for name, request in build_samples().items():
-        (samples_dir / f"{name}.json").write_text(json.dumps(request, indent=2) + "\n")
+        (samples_dir / f"{name}.json").write_text(
+            json.dumps(request, indent=2) + "\n", encoding="utf-8", newline="\n"
+        )
