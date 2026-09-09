@@ -1,0 +1,134 @@
+{
+  "PA-MRI-LUMBAR": {
+    "service_code": "72148",
+    "title": "MRI Lumbar Spine - Medical Necessity",
+    "required_conditions": [
+      {
+        "id": "MRI-LS-1",
+        "text": "At least 6 weeks of conservative therapy (PT, NSAIDs, or activity modification) documented."
+      },
+      {
+        "id": "MRI-LS-2",
+        "text": "Persistent or progressive radicular pain, neurologic deficit, or red-flag findings."
+      }
+    ],
+    "exclusions": [
+      "Uncomplicated acute low back pain under 6 weeks without red flags.",
+      "Repeat MRI within 12 months without a clinical change."
+    ],
+    "evidence_requirements": [
+      "Dates and duration of conservative care.",
+      "Neurologic exam findings or imaging red flags."
+    ]
+  },
+  "PA-KNEE-SCOPE": {
+    "service_code": "29881",
+    "title": "Knee Arthroscopy with Meniscectomy - Medical Necessity",
+    "required_conditions": [
+      {
+        "id": "KNEE-1",
+        "text": "Mechanical symptoms (locking, catching, giving way) persisting despite conservative care."
+      },
+      {
+        "id": "KNEE-2",
+        "text": "MRI or exam findings consistent with a meniscal tear."
+      }
+    ],
+    "exclusions": [
+      "Isolated degenerative osteoarthritis without mechanical symptoms.",
+      "No trial of physical therapy in the prior 3 months."
+    ],
+    "evidence_requirements": [
+      "Imaging report describing the meniscal tear.",
+      "Documentation of failed conservative management."
+    ]
+  },
+  "PA-AFLIBERCEPT": {
+    "service_code": "J0178",
+    "title": "Aflibercept Intravitreal Injection - Medical Necessity",
+    "required_conditions": [
+      {
+        "id": "AFLI-1",
+        "text": "Diagnosis of neovascular AMD, DME, or macular edema following retinal vein occlusion."
+      },
+      {
+        "id": "AFLI-2",
+        "text": "OCT or fluorescein angiography confirming active disease."
+      }
+    ],
+    "exclusions": [
+      "Active ocular or periocular infection.",
+      "Use for an indication outside the approved retinal conditions."
+    ],
+    "evidence_requirements": [
+      "OCT central subfield thickness measurement.",
+      "Prior anti-VEGF agents tried and response, if any."
+    ]
+  },
+  "PA-PSG": {
+    "service_code": "95810",
+    "title": "Attended Polysomnography - Medical Necessity",
+    "required_conditions": [
+      {
+        "id": "PSG-1",
+        "text": "Signs and symptoms of obstructive sleep apnea (habitual snoring, witnessed apneas, excessive daytime sleepiness)."
+      },
+      {
+        "id": "PSG-2",
+        "text": "A validated screening tool (e.g. STOP-BANG or Epworth) supports moderate-to-high pretest probability, OR a comorbidity that makes home testing unreliable."
+      }
+    ],
+    "exclusions": [
+      "Home sleep apnea testing is appropriate and no disqualifying comorbidity exists.",
+      "Repeat study within 12 months without a change in therapy or weight."
+    ],
+    "evidence_requirements": [
+      "Screening questionnaire score.",
+      "Narrative of symptoms and any relevant cardiopulmonary or neuromuscular comorbidity."
+    ]
+  },
+  "PA-EGD": {
+    "service_code": "43239",
+    "title": "Upper GI Endoscopy with Biopsy - Medical Necessity",
+    "required_conditions": [
+      {
+        "id": "EGD-1",
+        "text": "Alarm features (dysphagia, GI bleeding, unintentional weight loss, anemia) OR dyspepsia refractory to 4-8 weeks of PPI therapy."
+      },
+      {
+        "id": "EGD-2",
+        "text": "Age and risk profile consistent with society guidance for diagnostic endoscopy."
+      }
+    ],
+    "exclusions": [
+      "Uninvestigated dyspepsia under age 60 without alarm features and without a PPI trial.",
+      "Surveillance interval shorter than guideline-recommended."
+    ],
+    "evidence_requirements": [
+      "List of alarm features or the PPI trial dates and outcome.",
+      "Relevant labs (CBC, iron studies) if anemia is cited."
+    ]
+  },
+  "PA-TFESI": {
+    "service_code": "64483",
+    "title": "Lumbar Transforaminal Epidural Steroid Injection - Medical Necessity",
+    "required_conditions": [
+      {
+        "id": "TFESI-1",
+        "text": "Radicular pain in a dermatomal distribution correlating with imaging-confirmed nerve root compression."
+      },
+      {
+        "id": "TFESI-2",
+        "text": "At least 4 weeks of conservative therapy without adequate relief."
+      }
+    ],
+    "exclusions": [
+      "More than 3 injections at the same level within a rolling 12 months.",
+      "Systemic infection or bleeding diathesis."
+    ],
+    "evidence_requirements": [
+      "Imaging report localizing the compressed nerve root.",
+      "Pain scores before and after conservative therapy."
+    ]
+  }
+}

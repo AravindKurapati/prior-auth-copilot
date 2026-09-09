@@ -1,0 +1,7 @@
+namespaces:
+  episodic:     {ttl_days: 90,   cap: 50}
+  member:       {ttl_days: 365,  cap: 100}
+  provider:     {ttl_days: 365,  cap: 100}
+  policy_notes: {ttl_days: null, cap: 200}
+importance_weights: {routine: 1.0, notable: 1.5, critical: 3.0}
+recency_half_life_days: 30

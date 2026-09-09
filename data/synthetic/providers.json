@@ -1,0 +1,22 @@
+{
+  "1093817465": {
+    "name": "Dr. Pat Vega",
+    "specialty": "Family Medicine",
+    "network_status": "in_network"
+  },
+  "1487206395": {
+    "name": "Dr. Robin Ellery",
+    "specialty": "Orthopedic Surgery",
+    "network_status": "in_network"
+  },
+  "1720394856": {
+    "name": "Dr. Sam Okafor",
+    "specialty": "Gastroenterology",
+    "network_status": "out_of_network"
+  },
+  "1265498730": {
+    "name": "Dr. Lee Marchetti",
+    "specialty": "Sleep Medicine",
+    "network_status": "in_network"
+  }
+}

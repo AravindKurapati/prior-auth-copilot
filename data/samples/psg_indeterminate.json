@@ -1,0 +1,15 @@
+{
+  "case_id": "case-psg-01",
+  "session_id": "sess-psg-01",
+  "member_id": "M100004",
+  "raw_provider_text": "Attended polysomnography (95810) requested. Patient snores and is tired during the day. No screening questionnaire score recorded and the note does not say whether a home sleep study was considered or why it would be unreliable. DX G47.33. Provider NPI 1265498730.",
+  "structured": {
+    "service_code": "95810",
+    "diagnosis_codes": [
+      "G47.33"
+    ],
+    "requested_units": 1,
+    "place_of_service": "outpatient",
+    "provider_npi": "1265498730"
+  }
+}

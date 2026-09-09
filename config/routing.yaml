@@ -1,0 +1,4 @@
+max_replans: 2        # per-worker re-plan attempts before human_review
+max_hops: 12          # hard cap on supervisor turns per case
+recursion_limit: 40   # LangGraph graph recursion limit
+tau: 0.55             # medical-necessity confidence threshold

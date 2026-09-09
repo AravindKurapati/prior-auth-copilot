@@ -1,4 +1,4 @@
-.PHONY: install lint test test-all ingest run demo persistence-test all
+.PHONY: install lint test test-all ingest run demo persistence-test samples all
 
 install:
 	pip install -e ".[dev]"
@@ -20,6 +20,9 @@ demo:
 
 persistence-test:
 	pac persistence-test
+
+samples:
+	python scripts/make_samples.py
 
 all:
 	pac all

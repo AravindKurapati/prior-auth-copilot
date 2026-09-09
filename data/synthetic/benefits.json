@@ -1,0 +1,72 @@
+{
+  "M100001": {
+    "plan_id": "PLAN-GOLD-PPO",
+    "covered_services": {
+      "72148": {
+        "covered": true,
+        "requires_pa": true,
+        "network_status": "in_network"
+      },
+      "64483": {
+        "covered": true,
+        "requires_pa": true,
+        "network_status": "in_network"
+      },
+      "J0178": {
+        "covered": true,
+        "requires_pa": false,
+        "network_status": "in_network"
+      }
+    }
+  },
+  "M100002": {
+    "plan_id": "PLAN-SILVER-HMO",
+    "covered_services": {
+      "29881": {
+        "covered": true,
+        "requires_pa": true,
+        "network_status": "in_network"
+      },
+      "95810": {
+        "covered": true,
+        "requires_pa": true,
+        "network_status": "in_network"
+      }
+    }
+  },
+  "M100003": {
+    "plan_id": "PLAN-BRONZE-EPO",
+    "covered_services": {
+      "43239": {
+        "covered": false,
+        "requires_pa": true,
+        "network_status": "in_network"
+      },
+      "J0178": {
+        "covered": true,
+        "requires_pa": true,
+        "network_status": "out_of_network"
+      }
+    }
+  },
+  "M100004": {
+    "plan_id": "PLAN-GOLD-PPO",
+    "covered_services": {
+      "95810": {
+        "covered": true,
+        "requires_pa": true,
+        "network_status": "in_network"
+      },
+      "64483": {
+        "covered": true,
+        "requires_pa": true,
+        "network_status": "in_network"
+      },
+      "72148": {
+        "covered": true,
+        "requires_pa": true,
+        "network_status": "in_network"
+      }
+    }
+  }
+}
