@@ -1,7 +1,10 @@
 import json
+from pathlib import Path
 
 from pa_copilot.schemas import PARequest
-from pa_copilot.tracing import RunTracer, load_trace, redact
+from pa_copilot.tracing import RunTracer, default_redact_values, load_trace, redact
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_redact_scrubs_exact_secrets_and_member_ids():
@@ -49,6 +52,29 @@ def test_tracer_redacts_non_primitive_object_stringified_values(tmp_trace_dir):
     # Verify member_id from the Pydantic object is redacted
     assert "M100002" not in raw
     assert "<redacted>" in raw
+
+
+def test_default_redact_values_covers_provider_names_and_member_ids():
+    values = default_redact_values()
+    assert "Dr. Pat Vega" in values
+    assert "M100001" in values
+
+
+def test_tracer_redacts_synthetic_names_with_empty_caller_list(tmp_trace_dir):
+    """NFR-05: synthetic provider names must not leak even when the caller passes
+    `redact_values=[]` — the tracer unions in `default_redact_values()`."""
+    providers = json.loads(
+        (_REPO_ROOT / "data" / "synthetic" / "providers.json").read_text(encoding="utf-8")
+    )
+    a_name = next(iter(providers.values()))["name"]
+
+    t = RunTracer(tmp_trace_dir, case_id="case-nfr05", redact_values=[])
+    t.event("intake", "worker_output", {"name": a_name, "member_id": "M100001"})
+    path = t.finish()
+
+    raw = path.read_text(encoding="utf-8")
+    assert a_name not in raw
+    assert "M100001" not in raw
 
 
 def test_redact_scrubs_dict_keys():
