@@ -2,6 +2,17 @@ from pathlib import Path
 
 import pytest
 
+from pa_copilot.config import get_settings
+
+
+@pytest.fixture(autouse=True)
+def _clear_settings_cache():
+    """`get_settings()` is an `lru_cache`d singleton; clear it around every test so
+    config / memory-policy mutations in one test can't leak into the next."""
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
 
 @pytest.fixture
 def tmp_trace_dir(tmp_path: Path) -> Path:

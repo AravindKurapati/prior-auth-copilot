@@ -32,8 +32,37 @@ def test_loads_yaml_values(config_dir: Path, monkeypatch):
     assert s.model_summarizer == "gemini-flash-lite-latest"
     assert s.max_replans == 2
     assert s.tau == 0.55
-    assert s.memory["importance_weights"]["critical"] == 3.0
+    assert s.memory.importance_weights["critical"] == 3.0
+    assert s.memory.namespaces["episodic"].ttl_days == 90
+    assert s.memory.namespaces["episodic"].cap == 50
     assert s.gemini_api_key is None
+
+
+def test_memory_config_is_frozen(config_dir: Path):
+    s = load_settings(config_dir=config_dir, env_file=None)
+    with pytest.raises(Exception):
+        s.memory.recency_half_life_days = 999
+    with pytest.raises(Exception):
+        s.memory.namespaces["episodic"].cap = 999
+
+
+def test_filesystem_anchors_resolve_to_real_dirs(config_dir: Path):
+    s = load_settings(config_dir=config_dir, env_file=None)
+    assert Path(s.repo_root).is_dir()
+    assert Path(s.data_dir).is_dir()
+    assert Path(s.synthetic_dir).is_dir()
+    assert Path(s.samples_dir).is_dir()
+    assert Path(s.traces_dir).is_dir()
+    assert Path(s.synthetic_dir).parent == Path(s.data_dir)
+
+
+def test_anchor_env_overrides(config_dir: Path, monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("PA_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PA_TEMPERATURE_AGENT", "0.7")
+    s = load_settings(config_dir=config_dir, env_file=None)
+    assert s.repo_root == str(tmp_path)
+    assert s.data_dir == str(tmp_path / "data")
+    assert s.temperature_agent == 0.7
 
 
 def test_env_overrides_and_key_read(config_dir: Path, monkeypatch):
