@@ -58,6 +58,10 @@ AC-04); `specs/nfr.md` (NFR-04, NFR-05).
 | `tests/test_config.py` | config loads, env override wins, missing key handled |
 | `tests/test_synthetic_data.py` | generators are deterministic and internally consistent |
 
+> Note: `data/synthetic/` is the canonical location for every synthetic corpus. PR2's MCP
+> server and PR3's RAG loader read the JSON / markdown from there directly — there is no
+> copy under `src/pa_copilot/mcp_server/data/` (see `docs/design.md` §1, §4.1, §7).
+
 ---
 
 ## Task 1: Branch + package skeleton
