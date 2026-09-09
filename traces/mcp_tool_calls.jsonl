@@ -1,0 +1,1 @@
+{"via": "langchain-mcp-adapters", "tool": "criteria_check", "args": {"service_code": "72148", "diagnosis_codes": ["M54.16"]}, "result_status": "indeterminate"}
