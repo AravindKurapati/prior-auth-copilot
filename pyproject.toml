@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prior-auth-copilot"
+version = "0.1.0"
+description = "Multi-agent prior-authorization copilot — LangGraph + custom MCP server + tiered memory"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.2.50",
+    "langgraph-checkpoint-sqlite>=2.0",
+    "langchain>=0.3,<0.4",
+    "langchain-core>=0.3,<0.4",
+    "langchain-google-genai>=2.0,<3.0",
+    "langchain-huggingface>=0.1",
+    "langchain-mcp-adapters>=0.1",
+    "mcp>=1.9",
+    "langmem>=0.0.20",
+    "chromadb>=0.5,<0.7",
+    "sentence-transformers>=3.0",
+    "pydantic>=2.7,<3",
+    "typer>=0.12",
+    "streamlit>=1.36",
+    "pyyaml>=6",
+    "python-dotenv>=1.0",
+    "tenacity>=8.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "pytest-mock>=3.14", "ruff>=0.6"]
+
+[project.scripts]
+pac = "pa_copilot.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+asyncio_default_fixture_loop_scope = "function"
+markers = ["slow: needs a model download or a live Gemini API key"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

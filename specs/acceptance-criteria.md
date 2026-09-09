@@ -1,0 +1,28 @@
+# Acceptance Criteria — AC-01 .. AC-12
+
+Per the AC-Traceability Rule, each AC is referenced by at least one test **and** one
+committed evidence artifact, both carrying the `AC-NN` identifier. Status is updated as PRs
+land (see `docs/design.md` Section 10).
+
+| ID | Criterion | Test(s) | Committed artifact(s) | PR | Status |
+|---|---|---|---|---|---|
+| **AC-01** | LangGraph with an explicit typed state object (TypedDict/Pydantic) shared across nodes | `tests/test_ac01_typed_state.py` — asserts `PACaseState` is a `TypedDict`, every node reads and writes it, `graph.get_graph()` introspection | `src/pa_copilot/state.py`, `src/pa_copilot/graph.py`, `traces/graph_topology.txt` | PR1, PR5 | pending |
+| **AC-02** | Supervisor routes a PA request to specialized workers (intake, benefit-check, medical-necessity, decision-draft) | `tests/test_ac02_supervisor_routing.py` — supervisor emits `RouterDecision`; all four workers reachable; a run visits >= 2 workers via the supervisor | `traces/run_full_case.json` (`route_history`), `docs/single-vs-multi-agent.md` | PR5 | pending |
+| **AC-03** | Conditional edges route on state (auto-draft clear-cut approvals; ambiguous -> clinical review) | `tests/test_ac03_conditional_routing.py` — clear-cut case takes the auto path to `decision_draft`; ambiguous case routes to `human_review`; same compiled graph, different state | `traces/route_clearcut.json`, `traces/route_ambiguous.json` | PR5 | pending |
+| **AC-04** | Node/agent outputs are validated structured objects (Pydantic) at handoff boundaries | `tests/test_ac04_structured_output.py` — each worker returns a validated model; malformed output raises `ValidationError` and is handled | `src/pa_copilot/schemas.py`, typed artifacts inside `traces/run_full_case.json` | PR1, PR5 | pending |
+| **AC-05** | A checkpointer persists graph state so a case can be paused and resumed | `tests/test_ac05_checkpointer.py` — run interrupts at `human_review`; a fresh graph object built from the same `SqliteSaver` resumes and completes | `traces/pause_resume_transcript.md` (two separate process invocations) | PR5 | pending |
+| **AC-06** | Tiered memory (short-term working + long-term/semantic); recalls a fact from an earlier turn | `tests/test_ac06_tiered_memory.py` — fact stated on turn 1 is recalled on turn 3 from working memory | `traces/tiered_memory_recall.json` | PR4 | pending |
+| **AC-07** | Memory persists across sessions: a committed test starts a new session and recalls prior-session facts; output log committed | `tests/test_memory_persistence.py` + `scripts/run_persistence_test.py` (two `python` processes, same on-disk store) | `traces/memory_persistence.log` | PR4 | pending |
+| **AC-08** | A memory eviction/importance policy (TTL, LRU, or importance-weighted) is implemented and documented | `tests/test_ac08_eviction.py` — overflow a namespace: stale low-importance item evicted, `critical` retained, expired item gone after `sweep_ttl()` | `docs/memory-policy.md`, `src/pa_copilot/memory/policy.py` | PR4 | pending |
+| **AC-09** | Custom MCP server exposes >= 2 tools and 1 resource relevant to the domain | `tests/test_ac09_mcp_server.py` — spin the server, list 3 tools (`benefit_lookup`, `criteria_check`, `provider_lookup`) + 1 resource (`pa://criteria/{policy_id}`), invoke each | `src/pa_copilot/mcp_server/server.py`, `traces/mcp_capabilities.json` | PR2 | pending |
+| **AC-10** | Agent consumes the MCP server via `langchain-mcp-adapters`; committed transcript shows the agent invoking an MCP tool | `tests/test_ac10_mcp_integration.py` — a graph run where `medical_necessity` invokes `criteria_check` through the adapter | `traces/mcp_toolcall_transcript.md`, `traces/mcp_tool_calls.jsonl` | PR2, PR7 | pending |
+| **AC-11** | Agentic-RAG tool the agent decides when to call for coverage-criteria and medical-necessity lookups (retrieval inside the loop) | `tests/test_ac11_agentic_rag.py` — indeterminate case calls `search_clinical_guidance`; clear-cut case does not | `traces/agentic_rag_decision.md` | PR3, PR5 | pending |
+| **AC-12** | Reflection or self-healing/fallback loop (re-plan on tool failure or low-confidence output) with an evidenced trace | `tests/test_ac12_reflection.py` — injected tool failure triggers a re-plan; low-confidence necessity assessment triggers a loop back | `traces/reflection_tool_failure.json`, `traces/reflection_low_confidence.json` | PR6 | pending |
+
+## Notes
+
+- "Session" for AC-07 = a fresh set of in-memory objects (graph, store, checkpointer)
+  pointing at the same on-disk SQLite files, exercised both in-process (teardown + rebuild)
+  and cross-process (`scripts/run_persistence_test.py`).
+- Live-Gemini tests are `@pytest.mark.slow`; their committed `traces/` outputs are the
+  scored evidence. CI runs the deterministic + mocked subset.

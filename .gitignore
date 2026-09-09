@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Secrets — never commit
+.env
+*.key
+
+# Local state / generated stores (evidence lives in traces/, not these)
+.pa_state.db
+.pa_state.db-*
+.pa_memory.db
+.pa_memory.db-*
+.pa_chroma/
+*.sqlite3
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Model / HF caches
+.cache/
