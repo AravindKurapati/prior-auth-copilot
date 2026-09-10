@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -71,6 +72,22 @@ def test_env_overrides_and_key_read(config_dir: Path, monkeypatch):
     s = load_settings(config_dir=config_dir, env_file=None)
     assert s.gemini_api_key == "test-key-123"
     assert s.model_agent == "gemini-pro-latest"
+
+
+def test_gemini_api_key_mirrors_to_google_api_key(config_dir: Path, monkeypatch):
+    """langchain-google-genai reads only GOOGLE_API_KEY; load_settings must mirror
+    GEMINI_API_KEY onto it so the @slow AC-10 test can actually authenticate."""
+    monkeypatch.setenv("GEMINI_API_KEY", "mirror-me-0123456789abcdef")
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    load_settings(config_dir=config_dir, env_file=None)
+    assert os.environ["GOOGLE_API_KEY"] == "mirror-me-0123456789abcdef"
+
+
+def test_existing_google_api_key_is_not_overwritten(config_dir: Path, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-value")
+    monkeypatch.setenv("GOOGLE_API_KEY", "google-value-kept")
+    load_settings(config_dir=config_dir, env_file=None)
+    assert os.environ["GOOGLE_API_KEY"] == "google-value-kept"
 
 
 def test_frozen(config_dir: Path):

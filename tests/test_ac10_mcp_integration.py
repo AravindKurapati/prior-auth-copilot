@@ -70,7 +70,11 @@ async def test_ac10_gemini_agent_invokes_mcp_tool_transcript():
 
     s = load_settings(env_file=None)
     tools = await load_pa_tools()
-    model = init_chat_model(f"google_genai:{s.model_agent}", temperature=0).bind_tools(tools)
+    model = init_chat_model(
+        f"google_genai:{s.model_agent}",
+        temperature=s.temperature_agent,
+        api_key=s.gemini_api_key,
+    ).bind_tools(tools)
 
     msgs = [{"role": "user", "content": (
         "A provider requests prior auth for service 72148, diagnosis M54.16, member "
