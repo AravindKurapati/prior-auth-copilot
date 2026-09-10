@@ -25,7 +25,6 @@ import hashlib  # noqa: E402
 import json  # noqa: E402
 import logging  # noqa: E402
 import warnings  # noqa: E402
-from contextlib import contextmanager  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
@@ -39,12 +38,17 @@ from pa_copilot.rag.embedder import Embedder  # noqa: E402
 
 # Layer 3: the telemetry line ("Failed to send telemetry event ...") is a
 # `logging.error` record on `chromadb.telemetry.product.posthog`. Silencing that
-# logger subtree fully suppresses it — verified by
+# one logger subtree fully suppresses it — verified by
 # `test_no_chroma_telemetry_noise`, which fails if this is removed. (Layers 1-2
 # alone do not: the offending posthog `capture()` call fires before the setting
 # binds.) No monkeypatch of chromadb internals is needed.
+#
+# We deliberately do NOT raise the level of the whole `chromadb` logger: that
+# would also gag `local_persistent_hnsw`'s "Number of requested results N is
+# greater than number of elements in index M" warning — the exact silent
+# retrieval degradation that matters once PR5 adds a `service_code` filter and
+# PR7 ships a partial index.
 logging.getLogger("chromadb.telemetry").setLevel(logging.CRITICAL)
-logging.getLogger("chromadb").setLevel(logging.ERROR)
 
 # The specific deprecation chromadb 0.6.3 raises from its own `types.py` under
 # pydantic >= 2.11 (`.model_fields` on an instance). Fall back to the parent class
@@ -53,6 +57,17 @@ try:  # pragma: no cover - version shim
     from pydantic import PydanticDeprecatedSince211 as _ChromaPydWarning
 except Exception:  # pragma: no cover
     from pydantic import PydanticDeprecationWarning as _ChromaPydWarning
+
+# `search_clinical_guidance` has no async impl, so LangGraph's `ToolNode` runs it
+# via `run_in_executor` — on threads, concurrently, for parallel tool calls. A
+# `warnings.catch_warnings()` context manager mutates the *global*
+# `warnings.filters` list, so one thread's `__exit__` could restore filters
+# mid-block for another and let chromadb's pydantic deprecation escape into the
+# suite's `filterwarnings=["error"]` trap. Python 3.12 has no context-local
+# warnings state, so we register these two narrow (category + module scoped)
+# ignores once, at import, and never touch `warnings.filters` again.
+warnings.filterwarnings("ignore", category=_ChromaPydWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"chromadb\..*")
 
 # `delete_collection` on a missing name raises `ValueError` in chromadb 0.6.3;
 # newer builds use `chromadb.errors.NotFoundError`. Anything else (a lock or
@@ -66,21 +81,6 @@ except Exception:  # pragma: no cover
     pass
 
 _log = logging.getLogger(__name__)
-
-
-@contextmanager
-def _quiet_chroma():
-    """Scope-ignore the pydantic deprecation chromadb 0.6.3 trips from its own
-    `types.py` when its collection objects are touched. The suite runs
-    `filterwarnings = ["error"]`; this narrows the ignore to that one third-party
-    category (also bounded to `chromadb.*` frames) without weakening the global
-    policy — a non-chromadb / non-pydantic deprecation inside the block still trips."""
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=_ChromaPydWarning)
-        warnings.filterwarnings(
-            "ignore", category=DeprecationWarning, module=r"chromadb\..*"
-        )
-        yield
 
 
 _COSINE = {"hnsw:space": "cosine"}
@@ -114,16 +114,14 @@ def corpus_sha(guidance_dir: str | Path) -> str:
 
 def get_client(chroma_dir: str | Path) -> chromadb.api.ClientAPI:
     Path(chroma_dir).mkdir(parents=True, exist_ok=True)
-    with _quiet_chroma():
-        return chromadb.PersistentClient(
-            path=str(chroma_dir),
-            settings=ChromaSettings(anonymized_telemetry=False, is_persistent=True),
-        )
+    return chromadb.PersistentClient(
+        path=str(chroma_dir),
+        settings=ChromaSettings(anonymized_telemetry=False, is_persistent=True),
+    )
 
 
 def get_collection(client: chromadb.api.ClientAPI, name: str):
-    with _quiet_chroma():
-        return client.get_or_create_collection(name, metadata=_COSINE)
+    return client.get_or_create_collection(name, metadata=_COSINE)
 
 
 def _resolve(settings: Settings | None, embedder: Embedder | None) -> tuple[Settings, Embedder]:
@@ -154,20 +152,18 @@ def build_index(
     client = get_client(settings.chroma_dir)
     if rebuild:
         try:
-            with _quiet_chroma():
-                client.delete_collection(settings.rag_collection)
+            client.delete_collection(settings.rag_collection)
         except _DELETE_MISSING_ERRORS as exc:
             _log.debug("delete_collection(%s) skipped: %s", settings.rag_collection, exc)
     collection = get_collection(client, settings.rag_collection)
 
     embeddings = embedder.embed_documents([c.text for c in chunks])
-    with _quiet_chroma():
-        collection.upsert(
-            ids=[c.chunk_id for c in chunks],
-            embeddings=embeddings,
-            documents=[c.text for c in chunks],
-            metadatas=[{k: getattr(c, k) for k in _METADATA_KEYS} for c in chunks],
-        )
+    collection.upsert(
+        ids=[c.chunk_id for c in chunks],
+        embeddings=embeddings,
+        documents=[c.text for c in chunks],
+        metadatas=[{k: getattr(c, k) for k in _METADATA_KEYS} for c in chunks],
+    )
 
     summary = RagIndexSummary(
         doc_count=len({c.policy_id for c in chunks}),
@@ -211,29 +207,25 @@ def search(
 
     client = get_client(settings.chroma_dir)
     try:
-        with _quiet_chroma():
-            collection = client.get_collection(settings.rag_collection)
+        collection = client.get_collection(settings.rag_collection)
     except Exception as exc:
         raise RagIndexUnavailable(
             f"Chroma collection {settings.rag_collection!r} not found under "
             f"{settings.chroma_dir!r} — run scripts/ingest_rag.py to build it."
         ) from exc
-    with _quiet_chroma():
-        empty = collection.count() == 0
-    if empty:
+    if collection.count() == 0:
         raise RagIndexUnavailable(
             f"Chroma collection {settings.rag_collection!r} is empty — "
             f"run scripts/ingest_rag.py to build it."
         )
 
     where = {"service_code": service_code} if service_code else None
-    with _quiet_chroma():
-        res = collection.query(
-            query_embeddings=[embedder.embed_query(query)],
-            n_results=k,
-            where=where,
-            include=["documents", "distances", "metadatas"],
-        )
+    res = collection.query(
+        query_embeddings=[embedder.embed_query(query)],
+        n_results=k,
+        where=where,
+        include=["documents", "distances", "metadatas"],
+    )
 
     metadatas = res["metadatas"][0]
     distances = res["distances"][0]

@@ -41,7 +41,16 @@ testpaths = ["tests"]
 addopts = "-q"
 pythonpath = ["."]
 asyncio_default_fixture_loop_scope = "function"
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # chromadb 0.6.3 touches `.model_fields` on a pydantic instance from its own
+    # `types.py`. `rag/index.py` registers these same two ignores at import for
+    # the production (threaded) path; pytest resets `warnings.filters` per test,
+    # so they must also live here to keep the suite pristine. Both are category +
+    # module scoped — a non-chromadb deprecation anywhere else still fails.
+    "ignore::pydantic.warnings.PydanticDeprecatedSince211",
+    "ignore::DeprecationWarning:chromadb",
+]
 markers = ["slow: needs a model download or a live Gemini API key"]
 
 [tool.ruff]
