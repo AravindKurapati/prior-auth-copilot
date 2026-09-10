@@ -13,7 +13,6 @@ import logging
 
 from langchain_core.tools import tool
 
-from data.synthetic.generators import SERVICES
 from pa_copilot.config import get_settings
 from pa_copilot.rag import index
 from pa_copilot.rag.embedder import Embedder
@@ -33,6 +32,13 @@ _default_embedder: Embedder | None = None
 # is downloaded; ``reset_tool_embedder`` clears it back to ``None`` without
 # discarding the cached real default.
 _tool_embedder_override: Embedder | None = None
+
+# ``service_code -> policy title`` lookup, built lazily from the MCP data-access
+# layer (``criteria.json``) on first use. Imported here rather than from
+# ``data.synthetic.generators`` so this module is importable outside the repo root
+# (``data/`` is not a shipped package; PR5's worker + PR7's console script run
+# from other cwds).
+_service_title_by_code: dict[str, str] | None = None
 
 
 def set_tool_embedder(embedder: Embedder) -> None:
@@ -68,10 +74,14 @@ def _get_tool_embedder() -> Embedder:
 def _service_name(service_code: str | None) -> str | None:
     if not service_code:
         return None
-    for svc in SERVICES:
-        if svc["service_code"] == service_code:
-            return svc["name"]
-    return None
+    global _service_title_by_code
+    if _service_title_by_code is None:
+        from pa_copilot.mcp_server.data_access import list_policies
+
+        _service_title_by_code = {
+            p["service_code"]: p["title"] for p in list_policies()["policies"]
+        }
+    return _service_title_by_code.get(service_code)
 
 
 def should_search_guidance(
