@@ -1,4 +1,4 @@
-.PHONY: install lint test test-all ingest ingest-rag run demo persistence-test samples all
+.PHONY: install lint test test-all ingest ingest-rag chunks run demo persistence-test samples all
 
 install:
 	pip install -e ".[dev]"
@@ -17,6 +17,9 @@ ingest:
 
 ingest-rag:
 	python scripts/ingest_rag.py
+
+chunks:
+	python -c "from pa_copilot.rag import corpus; corpus.write_chunks_jsonl('data/synthetic/clinical_guidance_chunks.jsonl', corpus.load_guidance())"
 
 demo:
 	pac demo

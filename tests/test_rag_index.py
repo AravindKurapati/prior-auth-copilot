@@ -1,4 +1,6 @@
+import json
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -116,6 +118,23 @@ def test_no_chroma_telemetry_noise(tmp_path, monkeypatch, caplog, capfd):
     assert "Failed to send telemetry" not in logged
     assert "Failed to send telemetry" not in err
     assert "Failed to send telemetry" not in out
+
+
+def test_committed_index_summary_matches_corpus():
+    """Fast, model-free: the committed summary must still describe the current
+    corpus + configured model (I6). Regenerate with `python scripts/ingest_rag.py`."""
+    from pa_copilot.config import get_settings
+
+    settings = get_settings()
+    summary = json.loads(
+        (Path(settings.traces_dir) / "rag_index_summary.json").read_text(encoding="utf-8")
+    )
+    guidance_dir = Path(settings.synthetic_dir) / "clinical_guidance"
+    assert summary["corpus_sha"] == rag_index.corpus_sha(guidance_dir)
+    assert summary["chunk_count"] == len(load_guidance())
+    assert summary["doc_count"] == 6
+    assert summary["embedding_model"] == settings.embedding_model
+    assert summary["collection"] == settings.rag_collection
 
 
 @pytest.mark.slow
