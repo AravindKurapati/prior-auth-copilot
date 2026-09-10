@@ -5,3 +5,5 @@ namespaces:
   policy_notes: {ttl_days: null, cap: 200}
 importance_weights: {routine: 1.0, notable: 1.5, critical: 3.0}
 recency_half_life_days: 30
+default_importance: routine
+semantic_fields: [content, text]

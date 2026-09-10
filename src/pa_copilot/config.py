@@ -22,6 +22,8 @@ class MemoryConfig:
     namespaces: dict[str, NamespacePolicy]
     importance_weights: dict[str, float]
     recency_half_life_days: int
+    default_importance: str = "routine"
+    semantic_fields: tuple[str, ...] = ("content", "text")
     raw: dict = field(default_factory=dict)
 
 
@@ -68,6 +70,8 @@ def _build_memory_config(raw: dict) -> MemoryConfig:
         namespaces=namespaces,
         importance_weights=weights,
         recency_half_life_days=int(raw.get("recency_half_life_days", 30)),
+        default_importance=str(raw.get("default_importance", "routine")),
+        semantic_fields=tuple(raw.get("semantic_fields") or ("content", "text")),
         raw=raw,
     )
 

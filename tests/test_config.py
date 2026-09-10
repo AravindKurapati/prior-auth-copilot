@@ -130,6 +130,37 @@ def test_rag_settings_load_from_yaml(config_dir: Path):
     assert s.rag_query_prefix == "Represent this sentence: "
 
 
+def test_memory_config_has_policy_defaults(config_dir: Path):
+    (config_dir / "memory.yaml").write_text(
+        "namespaces:\n"
+        "  episodic: {ttl_days: 90, cap: 50}\n"
+        "  member: {ttl_days: 365, cap: 100}\n"
+        "  provider: {ttl_days: 365, cap: 100}\n"
+        "  policy_notes: {ttl_days: null, cap: 200}\n"
+        "importance_weights: {routine: 1.0, notable: 1.5, critical: 3.0}\n"
+        "recency_half_life_days: 30\n"
+    )
+    m = load_settings(config_dir=config_dir, env_file=None).memory
+    assert m.default_importance == "routine"
+    assert isinstance(m.semantic_fields, tuple)
+    assert "content" in m.semantic_fields and "text" in m.semantic_fields
+    assert m.namespaces["episodic"].ttl_days == 90
+    assert m.namespaces["policy_notes"].ttl_days is None
+
+
+def test_memory_config_policy_fields_from_yaml(config_dir: Path):
+    (config_dir / "memory.yaml").write_text(
+        "namespaces:\n"
+        "  episodic: {ttl_days: 90, cap: 50}\n"
+        "importance_weights: {routine: 1.0}\n"
+        "default_importance: notable\n"
+        "semantic_fields: [body, note]\n"
+    )
+    m = load_settings(config_dir=config_dir, env_file=None).memory
+    assert m.default_importance == "notable"
+    assert m.semantic_fields == ("body", "note")
+
+
 def test_rag_settings_env_overrides(config_dir: Path, monkeypatch):
     monkeypatch.setenv("PA_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
     monkeypatch.setenv("PA_RAG_COLLECTION", "pa_guidance_env")
