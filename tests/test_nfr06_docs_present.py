@@ -19,15 +19,17 @@ def test_integration_decision_sections():
     doc = _ROOT / "docs" / "integration-decision.md"
     text = doc.read_text(encoding="utf-8")
 
-    required_sections = [
-        "Context",
-        "Options Considered",
-        "Decision",
-        "Why Not the Others",
-        "Boundary with RAG",
+    # anchor on the Markdown heading form so a bare word in prose (e.g. "the
+    # integration decision addresses...") can't stand in for a real section.
+    required_headings = [
+        "## Context",
+        "## Options Considered",
+        "## Decision",  # matches "## Decision: MCP Server"
+        "## Why Not the Others",
+        "## Boundary with RAG",  # matches "## Boundary with RAG (AC-11)"
     ]
 
-    for section in required_sections:
-        assert section in text, (
-            f"docs/integration-decision.md missing section: {section}"
+    for heading in required_headings:
+        assert heading in text, (
+            f"docs/integration-decision.md missing section heading: {heading}"
         )

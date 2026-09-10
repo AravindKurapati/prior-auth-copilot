@@ -62,7 +62,7 @@ Placing the three lookups as in-process Python functions does not exercise the i
 
 ### REST / HTTP API: Breaks the no-service rule
 
-The project mandates no external services and no Docker. A REST API requires a running web server (even if local), violating the "single documented command" rule (NFR-02). MCP over stdio runs in-process with no separate service.
+The project mandates no external services and no Docker. A REST API requires a running web server (even if local), violating the "single documented command" rule (NFR-02). MCP over stdio is different: the client spawns the server as a child process and owns its entire lifecycle — no port to bind, no readiness/health check, nothing left running after the call returns. That is precisely what satisfies NFR-02's single-command rule, unlike a REST server that has to be started and health-checked as a separate step.
 
 ### Direct DB / file access: Couples to storage layout
 
@@ -97,5 +97,5 @@ See `docs/design.md` §4:
 
 - **Server**: `src/pa_copilot/mcp_server/server.py` — FastMCP with the three tools and resource namespace.
 - **Client**: `src/pa_copilot/mcp_client.py` — `MultiServerMCPClient` initialized at graph build time.
-- **Evidence**: `traces/mcp_capabilities.json` (tools + resources), `traces/mcp_tool_calls.jsonl` (logs of every tool invocation), `traces/mcp_toolcall_transcript.md` (annotated stdio session).
+- **Evidence**: `traces/mcp_capabilities.json` (tools + resources), `traces/mcp_tool_calls.jsonl` (structured tool-call log from the non-slow round-trip test), `traces/mcp_toolcall_transcript.md` (representative transcript — real MCP tool calls + results, agent natural-language turns reconstructed; regenerable with a live key via `pytest -m slow`).
 - **Tests**: `tests/test_ac09_mcp_server.py` (server spin-up + capability listing), `tests/test_ac10_mcp_integration.py` (agent invokes `criteria_check` through the adapter).

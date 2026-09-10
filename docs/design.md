@@ -271,9 +271,10 @@ async with client.session("pa") as s:
 
 Graph build is async (`make_graph()`); the CLI wraps it in `asyncio.run`. `benefit_lookup`
 + `provider_lookup` bind to `benefit_check` / `intake`; `criteria_check` binds to
-`medical_necessity`. Evidence: `traces/mcp_toolcall_transcript.md` (full stdio session with
-the agent invoking `criteria_check` — args + result), `traces/mcp_tool_calls.jsonl`,
-`traces/mcp_capabilities.json` (listed tools + resources).
+`medical_necessity`. Evidence: `traces/mcp_toolcall_transcript.md` (representative
+transcript — real MCP tool calls + results, agent turns reconstructed; full in-graph run:
+PR7), `traces/mcp_tool_calls.jsonl`, `traces/mcp_capabilities.json` (listed tools +
+resources).
 
 ### 4.3 Integration decision (writeup)
 
