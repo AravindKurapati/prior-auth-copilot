@@ -412,7 +412,7 @@ No direct commits to `main` after the scaffold commit. Each PR = feature branch 
 | PR | Branch | Contents | Closes |
 |---|---|---|---|
 | *scaffold* | initial commit on `main` | `pyproject.toml`, `.gitignore`, `.env.example`, README, `docs/PROBLEM_STATEMENT.md`, `docs/design.md`, `specs/` | — |
-| **PR1** | `feat/foundations` | `config.py`, `state.py`, `schemas.py`, `tracing.py`, synthetic data generators, `data/samples/`, `docs/business-case.md` | AC-01, AC-04, NFR-05 (partial) |
+| **PR1** | `feat/foundations` | `config.py`, `state.py`, `schemas.py`, `tracing.py`, synthetic data generators, `data/samples/`, `docs/business-case.md` | AC-01, AC-04, NFR-05 |
 | **PR2** | `feat/mcp-server` | `mcp_server/`, `mcp_client.py`, `docs/integration-decision.md` | AC-09; AC-10 (partial) |
 | **PR3** | `feat/agentic-rag` | `rag/`, `pac ingest` | AC-11 (tool level) |
 | **PR4** | `feat/memory` | `memory/`, `docs/memory-policy.md`, persistence test + script | AC-06, AC-07, AC-08 |
