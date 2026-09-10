@@ -5,15 +5,13 @@ Asserts that docs/integration-decision.md exists and contains required sections.
 
 from pathlib import Path
 
-import pytest
-
 _ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_integration_decision_doc_exists():
     """integration-decision.md must be committed."""
     doc = _ROOT / "docs" / "integration-decision.md"
-    assert doc.exists(), f"docs/integration-decision.md missing"
+    assert doc.exists(), "docs/integration-decision.md missing"
 
 
 def test_integration_decision_sections():
