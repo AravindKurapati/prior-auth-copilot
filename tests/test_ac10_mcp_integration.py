@@ -18,7 +18,14 @@ import pytest
 from langchain_core.tools import BaseTool
 
 from pa_copilot.config import load_settings
-from pa_copilot.mcp_client import load_pa_tools, load_policy
+from pa_copilot.mcp_client import (
+    build_client,
+    load_pa_tools,
+    load_policy,
+    load_policy_dict,
+    pa_session,
+)
+from pa_copilot.mcp_server import data_access
 
 pytestmark = pytest.mark.asyncio
 
@@ -54,13 +61,76 @@ async def test_ac10_resource_read_through_adapter():
     assert "43239" in text
 
 
-async def test_ac10_capability_report_lists_tools():
+async def test_ac10_capability_report_lists_tools_and_resources():
     from pa_copilot.mcp_client import capability_report
 
     report = await capability_report()
     assert isinstance(report, dict)
-    assert "tools" in report
     assert "criteria_check" in report["tools"]
+    assert "pa://criteria/index" in report["resources"]
+    assert any("{policy_id}" in t for t in report["resource_templates"])
+
+
+async def test_ac10_load_policy_dict_parses_the_json_body():
+    policy = await load_policy_dict("PA-EGD")
+    assert isinstance(policy, dict)
+    assert policy["service_code"] == "43239"
+
+
+async def test_ac10_session_path_round_trips_criteria_check():
+    """I2: tools loaded against a held pa_session() bind to one long-lived
+    subprocess and still round-trip a real lookup."""
+    async with pa_session() as session:
+        tools = {t.name: t for t in await load_pa_tools(session=session)}
+        assert {"benefit_lookup", "provider_lookup", "criteria_check"} <= set(tools)
+        result = await tools["criteria_check"].ainvoke(
+            {"service_code": "72148", "diagnosis_codes": ["M54.16"]}
+        )
+        payload = json.loads(result) if isinstance(result, str) else result
+        assert payload["policy_id"] == "PA-MRI-LUMBAR"
+
+
+async def test_ac10_env_passthrough_redirects_server_corpora(tmp_path: Path):
+    """I3: build_client(env=...) must reach the stdio subprocess so a test can
+    point PA_SYNTHETIC_DIR at a stub corpus instead of the committed data."""
+    stub = tmp_path / "syn"
+    stub.mkdir()
+    (stub / "benefits.json").write_text("{}", encoding="utf-8")
+    (stub / "providers.json").write_text("{}", encoding="utf-8")
+    (stub / "criteria.json").write_text(
+        json.dumps(
+            {
+                "PA-STUB": {
+                    "service_code": "STUB1",
+                    "title": "Stub Policy",
+                    "required_conditions": [{"id": "S-1", "text": "stub"}],
+                    "exclusions": [],
+                    "evidence_requirements": ["stub"],
+                    "excluded_diagnoses": [],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    client = build_client(env={"PA_SYNTHETIC_DIR": str(stub)})
+    tools = {t.name: t for t in await load_pa_tools(client=client)}
+
+    hit = await tools["criteria_check"].ainvoke({"service_code": "STUB1"})
+    hit = json.loads(hit) if isinstance(hit, str) else hit
+    assert hit["policy_id"] == "PA-STUB"  # came from the stub, not production
+
+    miss = await tools["criteria_check"].ainvoke({"service_code": "72148"})
+    miss = json.loads(miss) if isinstance(miss, str) else miss
+    assert miss["status"] == "not_found"  # production 72148 is invisible to the stub
+
+
+async def test_ac10_default_client_still_sees_production_corpora():
+    data_access.clear_corpora_cache()
+    tools = {t.name: t for t in await load_pa_tools()}
+    result = await tools["criteria_check"].ainvoke({"service_code": "72148"})
+    payload = json.loads(result) if isinstance(result, str) else result
+    assert payload["policy_id"] == "PA-MRI-LUMBAR"
 
 
 @pytest.mark.slow
