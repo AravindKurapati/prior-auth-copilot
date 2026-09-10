@@ -30,6 +30,8 @@ python -m venv .venv && .venv\Scripts\activate      # Windows;  macOS/Linux: sou
 pip install -e ".[dev]" -c constraints.txt          # constraints.txt pins the tested resolution
 cp .env.example .env                                # add GEMINI_API_KEY
 
+make ingest-rag                                     # build the clinical-guidance RAG index (.pa_chroma/); needed before
+                                                    # search_clinical_guidance / pac submit work on a fresh clone
 pac all                                             # ingest -> sample battery -> persistence test -> compare
 pac submit data/samples/mri_lumbar_clearcut.json    # run one request through the graph
 pac demo                                            # Streamlit UI (routing + memory state)

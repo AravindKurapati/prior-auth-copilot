@@ -17,7 +17,7 @@ dependencies = [
     "langchain-mcp-adapters>=0.1.10,<0.2",
     "mcp>=1.9,<2",
     "langmem>=0.0.20",
-    "chromadb>=0.5,<0.7",
+    "chromadb>=0.6,<0.7",  # rag/index.py uses the 0.6 collection API + `where=` shorthand
     "sentence-transformers>=3.0",
     "pydantic>=2.7,<3",
     "typer>=0.12",
@@ -41,7 +41,16 @@ testpaths = ["tests"]
 addopts = "-q"
 pythonpath = ["."]
 asyncio_default_fixture_loop_scope = "function"
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # chromadb 0.6.3 touches `.model_fields` on a pydantic instance from its own
+    # `types.py`. `rag/index.py` registers these same two ignores at import for
+    # the production (threaded) path; pytest resets `warnings.filters` per test,
+    # so they must also live here to keep the suite pristine. Both are category +
+    # module scoped — a non-chromadb deprecation anywhere else still fails.
+    "ignore::pydantic.warnings.PydanticDeprecatedSince211",
+    "ignore::DeprecationWarning:chromadb",
+]
 markers = ["slow: needs a model download or a live Gemini API key"]
 
 [tool.ruff]

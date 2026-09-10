@@ -365,15 +365,22 @@ extraction.
   `data/synthetic/generators.py::build_clinical_guidance()`; fully synthetic; committed.
 - **Index** — `rag/corpus.py` loads and clause-chunks that committed corpus; `rag/index.py`
   builds the in-process Chroma index (`./.pa_chroma/`), bge-small local embeddings,
-  clause-level chunks. Built by `pac ingest`. `rag/corpus.py` is a loader/chunker only, not
-  a generator.
-- **Tool** — `rag/tool.py::search_clinical_guidance(query, service_code=None) ->
-  list[CriteriaCitation]`, bound to `medical_necessity` only.
+  clause-level chunks. Built by `scripts/ingest_rag.py` / `make ingest-rag` (which also
+  regenerates the committed `data/synthetic/clinical_guidance_chunks.jsonl` and
+  `traces/rag_index_summary.json`); the `pac ingest` wiring lands in PR7. `rag/corpus.py` is
+  a loader/chunker only, not a generator.
+- **Tool** — `rag/tool.py::search_clinical_guidance(query, service_code=None) -> list[dict]`,
+  bound to `medical_necessity` only. Each dict is a `CriteriaCitation.model_dump()`
+  (`source, clause_id, quote, relevance`) — the return must be JSON-serializable for the
+  LangChain/MCP tool boundary; PR5 revalidates it into `CriteriaCitation` on the way into
+  `NecessityAssessment`. Every returned hit scores `>= rag_min_score`.
 - **Agentic, not a fixed step** — `medical_necessity` calls it only when MCP
-  `criteria_check` is `indeterminate` or the checklist needs narrative interpretation.
+  `criteria_check` is `indeterminate` / `not_found`, the worker's own status is `not_met`,
+  or the checklist needs narrative interpretation (`should_search_guidance(...)` predicate).
   `traces/agentic_rag_decision.md` shows one case that calls RAG and one that does not.
-  Corrective sub-loop: all retrieval scores below threshold -> one query rewrite -> still
-  weak -> `criteria_status="indeterminate"` -> supervisor -> `human_review`.
+  Corrective sub-loop: nothing clears `rag_min_score` -> one query rewrite -> still nothing
+  clears it -> the tool returns `[]` -> PR5 reads empty citations as
+  `criteria_status="indeterminate"` -> supervisor -> `human_review`.
 
 ---
 
@@ -426,7 +433,7 @@ No direct commits to `main` after the scaffold commit. Each PR = feature branch 
 | *scaffold* | initial commit on `main` | `pyproject.toml`, `.gitignore`, `.env.example`, README, `docs/PROBLEM_STATEMENT.md`, `docs/design.md`, `specs/` | — |
 | **PR1** | `feat/foundations` | `config.py`, `state.py`, `schemas.py`, `tracing.py`, synthetic data generators, `data/samples/`, `docs/business-case.md` | AC-01, AC-04, NFR-05 |
 | **PR2** | `feat/mcp-server` | `mcp_server/`, `mcp_client.py`, `docs/integration-decision.md` | AC-09; AC-10 (partial) |
-| **PR3** | `feat/agentic-rag` | `rag/`, `pac ingest` | AC-11 (tool level) |
+| **PR3** | `feat/agentic-rag` | `rag/`, `scripts/ingest_rag.py` + `make ingest-rag` (`pac ingest` wiring is PR7) | AC-11 (tool level) |
 | **PR4** | `feat/memory` | `memory/`, `docs/memory-policy.md`, persistence test + script | AC-06, AC-07, AC-08 |
 | **PR5** | `feat/graph-core` | `supervisor.py`, `agents/`, `graph.py`, `context/`, checkpointer wiring | AC-02, AC-03, AC-05, NFR-03, NFR-08 |
 | **PR6** | `feat/reflection` | `reflection.py`, dual-trigger loop, `tenacity` / timeouts | AC-12, NFR-07 |

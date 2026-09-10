@@ -94,3 +94,52 @@ def test_frozen(config_dir: Path):
     s = load_settings(config_dir=config_dir, env_file=None)
     with pytest.raises(Exception):
         s.model_agent = "x"
+
+
+def test_rag_settings_defaults_when_yaml_absent(config_dir: Path):
+    s = load_settings(config_dir=config_dir, env_file=None)
+    assert s.embedding_model == "BAAI/bge-small-en-v1.5"
+    assert s.rag_collection == "pa_guidance"
+    assert s.rag_top_k == 4
+    assert s.rag_min_score == 0.30
+    assert s.rag_rewrite_min_score == 0.20
+    assert s.rag_query_prefix == ""
+
+
+def test_rag_settings_load_from_yaml(config_dir: Path):
+    (config_dir / "models.yaml").write_text(
+        "agent: gemini-flash-latest\n"
+        "summarizer: gemini-flash-lite-latest\n"
+        "temperature_agent: 0.0\n"
+        "embedding_model: BAAI/bge-base-en-v1.5\n"
+    )
+    (config_dir / "rag.yaml").write_text(
+        "collection: pa_guidance_v2\n"
+        "top_k: 6\n"
+        "min_score: 0.42\n"
+        "rewrite_min_score: 0.25\n"
+        'query_prefix: "Represent this sentence: "\n'
+    )
+    s = load_settings(config_dir=config_dir, env_file=None)
+    assert s.embedding_model == "BAAI/bge-base-en-v1.5"
+    assert s.rag_collection == "pa_guidance_v2"
+    assert s.rag_top_k == 6
+    assert s.rag_min_score == 0.42
+    assert s.rag_rewrite_min_score == 0.25
+    assert s.rag_query_prefix == "Represent this sentence: "
+
+
+def test_rag_settings_env_overrides(config_dir: Path, monkeypatch):
+    monkeypatch.setenv("PA_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+    monkeypatch.setenv("PA_RAG_COLLECTION", "pa_guidance_env")
+    monkeypatch.setenv("PA_RAG_TOP_K", "9")
+    monkeypatch.setenv("PA_RAG_MIN_SCORE", "0.55")
+    monkeypatch.setenv("PA_RAG_REWRITE_MIN_SCORE", "0.33")
+    monkeypatch.setenv("PA_RAG_QUERY_PREFIX", "query: ")
+    s = load_settings(config_dir=config_dir, env_file=None)
+    assert s.embedding_model == "sentence-transformers/all-MiniLM-L6-v2"
+    assert s.rag_collection == "pa_guidance_env"
+    assert s.rag_top_k == 9
+    assert s.rag_min_score == 0.55
+    assert s.rag_rewrite_min_score == 0.33
+    assert s.rag_query_prefix == "query: "

@@ -55,7 +55,7 @@ plus `should_search_guidance(...)` — the routing predicate PR5's worker calls.
   `PA-AFLIBERCEPT`(J0178), `PA-PSG`(95810), `PA-EGD`(43239), `PA-TFESI`(64483).
 - `data/synthetic/clinical_guidance/pa-{mri-lumbar,knee-scope,aflibercept,psg,egd,tfesi}.md`
   — each headed `# <Title>` with `## Indications`, `## Step therapy`, `## Exclusions`
-  sections (plus a lead paragraph).
+  sections (plus a pre-heading paragraph, chunked as section `"Overview"`).
 - `pa_copilot.mcp_server.data_access.criteria_check(...) -> {"status": "not_found"|
   "excluded"|"indeterminate", ...}` — the `status` PR5's worker branches on.
 - The MCP→worker status mapping table is in `docs/design.md` §4.1.
@@ -97,11 +97,11 @@ plus `should_search_guidance(...)` — the routing predicate PR5's worker calls.
     `pa-mri-lumbar, pa-knee-scope, pa-aflibercept, pa-psg, pa-egd, pa-tfesi`. Hardcode the
     map and assert in a test that it covers every `SERVICES` policy_id.)
   - `Chunk` — frozen dataclass: `chunk_id: str`, `policy_id: str`, `service_code: str`,
-    `doc_title: str`, `section: str` (e.g. `"Indications"`, `"lead"`), `clause_index: int`,
+    `doc_title: str`, `section: str` (e.g. `"Indications"`, `"Overview"`), `clause_index: int`,
     `text: str`.
   - `load_guidance(guidance_dir: str | Path | None = None) -> list[Chunk]` — for each
     `*.md`: parse `# Title`; split into sections by `## Heading`; the pre-heading paragraph
-    is section `"lead"`; within each section, split into clauses on blank lines AND on
+    is section `"Overview"`; within each section, split into clauses on blank lines AND on
     `"- "` list-item boundaries (each bullet = one clause); skip empty. `chunk_id` =
     `f"{policy_id}:{section_slug}:{clause_index}"`. Deterministic ordering (files sorted,
     sections in document order).
@@ -141,10 +141,10 @@ def test_chunk_ids_unique():
 - [ ] **Step 4: Run → passes**
 - [ ] **Step 5: Generate the committed chunk dump**
 
-```python
-python -c "from pathlib import Path; from pa_copilot.rag import corpus; corpus.write_chunks_jsonl(Path('data/synthetic/clinical_guidance_chunks.jsonl'), corpus.load_guidance())"
-```
-Run it twice; `git status` shows the file identical after the second run.
+`scripts/ingest_rag.py` is the in-repo producer of
+`data/synthetic/clinical_guidance_chunks.jsonl` (and `traces/rag_index_summary.json`);
+`make chunks` regenerates just the JSONL without touching the model. Run either twice;
+`git status` shows the file identical after the second run.
 
 - [ ] **Step 6: Commit**
 

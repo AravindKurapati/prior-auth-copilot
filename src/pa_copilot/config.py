@@ -39,6 +39,12 @@ class Settings:
     samples_dir: str
     synthetic_dir: str
     traces_dir: str
+    embedding_model: str
+    rag_collection: str
+    rag_top_k: int
+    rag_min_score: float
+    rag_rewrite_min_score: float
+    rag_query_prefix: str
     max_replans: int
     max_hops: int
     recursion_limit: int
@@ -84,6 +90,7 @@ def load_settings(
     models = _read_yaml(cfg / "models.yaml")
     routing = _read_yaml(cfg / "routing.yaml")
     memory = _read_yaml(cfg / "memory.yaml")
+    rag = _read_yaml(cfg / "rag.yaml")
 
     repo_root = os.environ.get("PA_REPO_ROOT") or str(_REPO_ROOT)
     data_dir = os.environ.get("PA_DATA_DIR") or str(Path(repo_root) / "data")
@@ -108,6 +115,20 @@ def load_settings(
         samples_dir=samples_dir,
         synthetic_dir=synthetic_dir,
         traces_dir=traces_dir,
+        embedding_model=os.environ.get(
+            "PA_EMBEDDING_MODEL", models.get("embedding_model", "BAAI/bge-small-en-v1.5")
+        ),
+        rag_collection=os.environ.get(
+            "PA_RAG_COLLECTION", rag.get("collection", "pa_guidance")
+        ),
+        rag_top_k=int(os.environ.get("PA_RAG_TOP_K", rag.get("top_k", 4))),
+        rag_min_score=float(os.environ.get("PA_RAG_MIN_SCORE", rag.get("min_score", 0.30))),
+        rag_rewrite_min_score=float(
+            os.environ.get("PA_RAG_REWRITE_MIN_SCORE", rag.get("rewrite_min_score", 0.20))
+        ),
+        rag_query_prefix=os.environ.get(
+            "PA_RAG_QUERY_PREFIX", rag.get("query_prefix", "")
+        ),
         max_replans=int(routing.get("max_replans", 2)),
         max_hops=int(routing.get("max_hops", 12)),
         recursion_limit=int(routing.get("recursion_limit", 40)),
