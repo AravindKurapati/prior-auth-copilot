@@ -78,6 +78,7 @@ def test_gemini_api_key_mirrors_to_google_api_key(config_dir: Path, monkeypatch)
     """langchain-google-genai reads only GOOGLE_API_KEY; load_settings must mirror
     GEMINI_API_KEY onto it so the @slow AC-10 test can actually authenticate."""
     monkeypatch.setenv("GEMINI_API_KEY", "mirror-me-0123456789abcdef")
+    # _env_snapshot (conftest) reverts the raw mirror write after this test
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     load_settings(config_dir=config_dir, env_file=None)
     assert os.environ["GOOGLE_API_KEY"] == "mirror-me-0123456789abcdef"

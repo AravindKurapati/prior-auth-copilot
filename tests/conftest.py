@@ -1,8 +1,25 @@
+import os
 from pathlib import Path
 
 import pytest
 
 from pa_copilot.config import get_settings
+
+
+@pytest.fixture(autouse=True)
+def _env_snapshot():
+    """Snapshot os.environ and restore it exactly after each test. monkeypatch
+    reverts its own setenv/delenv, but not a raw `os.environ[...] = ...` write
+    (config.load_settings mirrors GEMINI_API_KEY -> GOOGLE_API_KEY that way)."""
+    saved = dict(os.environ)
+    try:
+        yield
+    finally:
+        for key in [k for k in os.environ if k not in saved]:
+            del os.environ[key]
+        for key, value in saved.items():
+            if os.environ.get(key) != value:
+                os.environ[key] = value
 
 
 @pytest.fixture(autouse=True)
