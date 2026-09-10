@@ -8,8 +8,12 @@ _ROOT = Path(__file__).resolve().parents[1]
 
 _KEY_SHAPES = [
     re.compile(r"AIza[0-9A-Za-z_\-]{20,}"),          # Google API key
-    re.compile(r"\bsk-[A-Za-z0-9]{20,}\b"),          # OpenAI-style secret key
-    re.compile(r"(?:GEMINI|GOOGLE)_API_KEY[ \t]*[=:][ \t]*\S+"),  # assigned, non-empty value
+    re.compile(r"\bsk-[A-Za-z0-9_\-]{20,}\b"),       # OpenAI-style secret key (incl. sk-proj-/sk-ant-api03-)
+    re.compile(
+        r"(?:GEMINI|GOOGLE)_API_KEY['\"]?\]?[ \t]*[=:][ \t]*['\"]?"
+        r"(?!<|\$|\.\.\.|your[-_]|xxx|placeholder|dummy|fake|test[-_]|example)"
+        r"[A-Za-z0-9_\-]{20,}"
+    ),  # assigned realistic key value: KEY = "...", KEY: ..., os.environ["KEY"] = "..."
 ]
 
 _SKIP_SUFFIXES = {".png", ".db", ".ico", ".jpg", ".jpeg", ".gz", ".zip"}

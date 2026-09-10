@@ -1,0 +1,78 @@
+# Reproducible resolution for the versions this repo's traces + tests were
+# generated against. Hand-trimmed from `pip freeze` to the direct dependencies in
+# pyproject.toml plus their load-bearing transitives (protocol / serialization /
+# HTTP / vector-store libs whose minor versions have bitten us before).
+#
+#   pip install -e ".[dev]" -c constraints.txt
+#
+# Not a full lockfile — deep leaf deps float within the ranges pyproject allows.
+
+# --- graph / orchestration ---
+langgraph==1.0.1
+langgraph-checkpoint==3.0.1
+langgraph-checkpoint-sqlite==3.0.3
+langgraph-prebuilt==1.0.1
+langgraph-sdk==0.2.15
+aiosqlite==0.22.1
+
+# --- langchain core + integrations ---
+langchain==0.3.30
+langchain-core==0.3.86
+langchain-text-splitters==0.3.11
+langchain-google-genai==2.1.12
+langchain-huggingface==0.3.1
+langchain-mcp-adapters==0.1.10
+langsmith==0.7.14
+langmem==0.0.30
+
+# --- MCP ---
+mcp==1.27.1
+sse-starlette==3.4.1
+starlette==0.52.1
+
+# --- model client (Gemini) ---
+google-ai-generativelanguage==0.12.0
+google-api-core==2.30.0
+google-auth==2.48.0
+grpcio==1.78.0
+protobuf==5.29.6
+
+# --- RAG / embeddings ---
+chromadb==0.6.3
+chroma-hnswlib==0.7.6
+sentence-transformers==5.2.3
+transformers==4.44.0
+tokenizers==0.19.1
+huggingface-hub==0.36.2
+torch==2.10.0
+numpy==2.4.2
+sqlite-vec==0.1.9
+
+# --- data / validation / config ---
+pydantic==2.12.5
+pydantic-core==2.41.5
+pydantic-settings==2.13.1
+PyYAML==6.0.1
+python-dotenv==1.2.2
+tenacity==9.1.4
+
+# --- HTTP / async / serialization ---
+anyio==4.9.0
+httpx==0.28.1
+httpcore==1.0.8
+httpx-sse==0.4.3
+orjson==3.11.7
+ormsgpack==1.12.2
+xxhash==3.5.0
+
+# --- interface ---
+typer==0.24.1
+click==8.3.1
+streamlit==1.44.1
+rich==14.3.4
+
+# --- dev ---
+pytest==8.3.5
+pytest-asyncio==0.26.0
+pytest-mock==3.15.1
+ruff==0.15.13

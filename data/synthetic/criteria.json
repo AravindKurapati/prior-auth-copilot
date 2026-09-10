@@ -19,6 +19,9 @@
     "evidence_requirements": [
       "Dates and duration of conservative care.",
       "Neurologic exam findings or imaging red flags."
+    ],
+    "excluded_diagnoses": [
+      "M54.5"
     ]
   },
   "PA-KNEE-SCOPE": {
@@ -41,6 +44,9 @@
     "evidence_requirements": [
       "Imaging report describing the meniscal tear.",
       "Documentation of failed conservative management."
+    ],
+    "excluded_diagnoses": [
+      "M17.0"
     ]
   },
   "PA-AFLIBERCEPT": {
@@ -63,7 +69,8 @@
     "evidence_requirements": [
       "OCT central subfield thickness measurement.",
       "Prior anti-VEGF agents tried and response, if any."
-    ]
+    ],
+    "excluded_diagnoses": []
   },
   "PA-PSG": {
     "service_code": "95810",
@@ -85,7 +92,8 @@
     "evidence_requirements": [
       "Screening questionnaire score.",
       "Narrative of symptoms and any relevant cardiopulmonary or neuromuscular comorbidity."
-    ]
+    ],
+    "excluded_diagnoses": []
   },
   "PA-EGD": {
     "service_code": "43239",
@@ -107,6 +115,9 @@
     "evidence_requirements": [
       "List of alarm features or the PPI trial dates and outcome.",
       "Relevant labs (CBC, iron studies) if anemia is cited."
+    ],
+    "excluded_diagnoses": [
+      "K21.9"
     ]
   },
   "PA-TFESI": {
@@ -129,6 +140,7 @@
     "evidence_requirements": [
       "Imaging report localizing the compressed nerve root.",
       "Pain scores before and after conservative therapy."
-    ]
+    ],
+    "excluded_diagnoses": []
   }
 }

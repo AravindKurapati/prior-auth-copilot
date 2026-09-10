@@ -9,9 +9,10 @@ SERVICES               list[{service_code, name, policy_id}]           (6 servic
 build_benefits()       {member_id: {plan_id, covered_services: {code: {...}}}}  (4 members)
 build_providers()      {npi: {name, specialty, network_status}}        (4 providers)
 build_criteria()       {policy_id: {service_code, title, required_conditions,
-                                    exclusions, evidence_requirements}}  (6 policies)
+                                    exclusions, evidence_requirements,
+                                    excluded_diagnoses}}  (6 policies)
 build_clinical_guidance()  {filename: markdown_text}                    (1 per policy)
-build_samples()        {name: request_dict}                            (7 scenarios)
+build_samples()        {name: request_dict}                            (8 scenarios)
 """
 
 from __future__ import annotations
@@ -88,7 +89,9 @@ def build_criteria() -> dict:
     """One structured criteria record per policy_id.
 
     `required_conditions` is a list of {id, text} so downstream `clause_id`
-    citations resolve against a stable identifier.
+    citations resolve against a stable identifier. `excluded_diagnoses` is a list
+    of ICD-10 codes that are a mechanical exclusion for the policy (empty when the
+    policy always needs clinical assessment).
     """
     return {
         "PA-MRI-LUMBAR": {
@@ -106,6 +109,7 @@ def build_criteria() -> dict:
                 "Dates and duration of conservative care.",
                 "Neurologic exam findings or imaging red flags.",
             ],
+            "excluded_diagnoses": ["M54.5"],
         },
         "PA-KNEE-SCOPE": {
             "service_code": "29881",
@@ -122,6 +126,7 @@ def build_criteria() -> dict:
                 "Imaging report describing the meniscal tear.",
                 "Documentation of failed conservative management.",
             ],
+            "excluded_diagnoses": ["M17.0"],
         },
         "PA-AFLIBERCEPT": {
             "service_code": "J0178",
@@ -138,6 +143,7 @@ def build_criteria() -> dict:
                 "OCT central subfield thickness measurement.",
                 "Prior anti-VEGF agents tried and response, if any.",
             ],
+            "excluded_diagnoses": [],
         },
         "PA-PSG": {
             "service_code": "95810",
@@ -154,6 +160,7 @@ def build_criteria() -> dict:
                 "Screening questionnaire score.",
                 "Narrative of symptoms and any relevant cardiopulmonary or neuromuscular comorbidity.",
             ],
+            "excluded_diagnoses": [],
         },
         "PA-EGD": {
             "service_code": "43239",
@@ -170,6 +177,7 @@ def build_criteria() -> dict:
                 "List of alarm features or the PPI trial dates and outcome.",
                 "Relevant labs (CBC, iron studies) if anemia is cited.",
             ],
+            "excluded_diagnoses": ["K21.9"],
         },
         "PA-TFESI": {
             "service_code": "64483",
@@ -186,6 +194,7 @@ def build_criteria() -> dict:
                 "Imaging report localizing the compressed nerve root.",
                 "Pain scores before and after conservative therapy.",
             ],
+            "excluded_diagnoses": [],
         },
     }
 
@@ -355,13 +364,16 @@ def build_clinical_guidance() -> dict[str, str]:
 
 
 def build_samples() -> dict[str, dict]:
-    """Seven raw provider submissions, each shaped like the `sample_request` fixture.
+    """Eight raw provider submissions, each shaped like the `sample_request` fixture.
 
     NOTE: this is the pre-parse provider submission shape, not a valid `PARequest`.
     `knee_scope_missing_info["structured"]` deliberately omits `diagnosis_codes`.
     `no_pa_required` resolves to a covered service with `requires_pa=False` (benefit
     check short-circuits). `unknown_member` uses a member id and NPI absent from the
     synthetic corpora (intake flags, pipeline degrades gracefully).
+    `mri_lumbar_excluded` carries DX `M54.5`, a documented exclusion for
+    `PA-MRI-LUMBAR` — the only sample that makes MCP `criteria_check` return
+    `excluded` (needed for PR5 AC-03 + PR8).
     """
     return {
         "mri_lumbar_clearcut": {
@@ -377,6 +389,24 @@ def build_samples() -> dict[str, dict]:
             "structured": {
                 "service_code": "72148",
                 "diagnosis_codes": ["M54.16"],
+                "requested_units": 1,
+                "place_of_service": "outpatient",
+                "provider_npi": "1093817465",
+            },
+        },
+        "mri_lumbar_excluded": {
+            "case_id": "case-mri-02",
+            "session_id": "sess-mri-02",
+            "member_id": "M100001",
+            "raw_provider_text": (
+                "Requesting prior auth for MRI lumbar spine (72148). 39-year-old with 5 days "
+                "of uncomplicated acute low back pain after lifting a box. No radicular "
+                "symptoms, no neurologic deficit, no red flags, and no conservative care "
+                "tried yet. DX M54.5. Ordering provider NPI 1093817465."
+            ),
+            "structured": {
+                "service_code": "72148",
+                "diagnosis_codes": ["M54.5"],
                 "requested_units": 1,
                 "place_of_service": "outpatient",
                 "provider_npi": "1093817465",

@@ -73,6 +73,13 @@ def load_settings(
     if env_file and Path(env_file).exists():
         load_dotenv(env_file)
 
+    # The project standardises on GEMINI_API_KEY (see .env.example), but
+    # langchain-google-genai (`init_chat_model("google_genai:…")` /
+    # ChatGoogleGenerativeAI) only reads GOOGLE_API_KEY. Mirror it so a machine
+    # configured per our docs actually authenticates.
+    if os.environ.get("GEMINI_API_KEY") and not os.environ.get("GOOGLE_API_KEY"):
+        os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
+
     cfg = Path(config_dir)
     models = _read_yaml(cfg / "models.yaml")
     routing = _read_yaml(cfg / "routing.yaml")

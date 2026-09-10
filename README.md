@@ -27,7 +27,7 @@ for the acceptance-criteria ledger. Built PR-by-PR (`git merge --no-ff`); see gi
 
 ```bash
 python -m venv .venv && .venv\Scripts\activate      # Windows;  macOS/Linux: source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev]" -c constraints.txt          # constraints.txt pins the tested resolution
 cp .env.example .env                                # add GEMINI_API_KEY
 
 pac all                                             # ingest -> sample battery -> persistence test -> compare

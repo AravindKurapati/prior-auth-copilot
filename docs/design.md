@@ -240,12 +240,23 @@ checkpoint in a **separate process invocation**. Evidence:
 | Kind | Name | Signature -> returns | Backing |
 |---|---|---|---|
 | tool | `benefit_lookup` | `(member_id, service_code)` -> `covered`, `requires_pa`, `network_status`, `plan_id` | `data/synthetic/benefits.json` |
-| tool | `criteria_check` | `(service_code, diagnosis_codes)` -> applicable `policy_id` + structured requirement checklist + `status` (`met`/`not_met`/`indeterminate` best-effort) | `data/synthetic/criteria.json` |
+| tool | `criteria_check` | `(service_code, diagnosis_codes)` -> applicable `policy_id` + structured requirement checklist + `status` (`not_found`/`excluded`/`indeterminate` best-effort) | `data/synthetic/criteria.json` |
 | tool | `provider_lookup` | `(npi)` -> `name`, `specialty`, `network_status` | `data/synthetic/providers.json` |
 | resource | `pa://criteria/{policy_id}` and `pa://criteria/index` | full structured coverage-policy document (required conditions, exclusions, evidence requirements) / index of all policy ids | `data/synthetic/criteria.json` |
 
 The MCP server **reads** the synthetic corpora directly from `data/synthetic/`; there is no
 copy under `src/pa_copilot/mcp_server/data/`.
+
+**Status vocabulary — MCP `criteria_check.status` → `NecessityAssessment.criteria_status`** (PR5 consumes this).
+The MCP tool's `status ∈ {not_found, excluded, indeterminate}` is a *mechanical* screen; the
+worker model's `criteria_status ∈ {met, not_met, indeterminate}` is the *clinical* judgment.
+They share the word `indeterminate` but do not mean the same thing — the mapping is:
+
+| MCP `criteria_check.status` | `medical_necessity` worker does | resulting `criteria_status` |
+|---|---|---|
+| `not_found` | no policy for this service code — cannot assess mechanically | `indeterminate`, `policy_id = None` |
+| `excluded` | a supplied diagnosis is a documented exclusion — strong signal, worker still confirms against the clinical summary | usually `not_met` |
+| `indeterminate` | policy exists; worker assesses the checklist against the clinical summary, calling agentic RAG when the narrative matters | `met` / `not_met` / `indeterminate` |
 
 ### 4.2 `mcp_client.py`
 
@@ -260,9 +271,10 @@ async with client.session("pa") as s:
 
 Graph build is async (`make_graph()`); the CLI wraps it in `asyncio.run`. `benefit_lookup`
 + `provider_lookup` bind to `benefit_check` / `intake`; `criteria_check` binds to
-`medical_necessity`. Evidence: `traces/mcp_toolcall_transcript.md` (full stdio session with
-the agent invoking `criteria_check` — args + result), `traces/mcp_tool_calls.jsonl`,
-`traces/mcp_capabilities.json` (listed tools + resources).
+`medical_necessity`. Evidence: `traces/mcp_toolcall_transcript.md` (representative
+transcript — real MCP tool calls + results, agent turns reconstructed; full in-graph run:
+PR7), `traces/mcp_tool_calls.jsonl`, `traces/mcp_capabilities.json` (listed tools +
+resources).
 
 ### 4.3 Integration decision (writeup)
 
@@ -412,7 +424,7 @@ No direct commits to `main` after the scaffold commit. Each PR = feature branch 
 | PR | Branch | Contents | Closes |
 |---|---|---|---|
 | *scaffold* | initial commit on `main` | `pyproject.toml`, `.gitignore`, `.env.example`, README, `docs/PROBLEM_STATEMENT.md`, `docs/design.md`, `specs/` | — |
-| **PR1** | `feat/foundations` | `config.py`, `state.py`, `schemas.py`, `tracing.py`, synthetic data generators, `data/samples/`, `docs/business-case.md` | AC-01, AC-04, NFR-05 (partial) |
+| **PR1** | `feat/foundations` | `config.py`, `state.py`, `schemas.py`, `tracing.py`, synthetic data generators, `data/samples/`, `docs/business-case.md` | AC-01, AC-04, NFR-05 |
 | **PR2** | `feat/mcp-server` | `mcp_server/`, `mcp_client.py`, `docs/integration-decision.md` | AC-09; AC-10 (partial) |
 | **PR3** | `feat/agentic-rag` | `rag/`, `pac ingest` | AC-11 (tool level) |
 | **PR4** | `feat/memory` | `memory/`, `docs/memory-policy.md`, persistence test + script | AC-06, AC-07, AC-08 |

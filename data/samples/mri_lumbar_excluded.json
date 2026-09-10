@@ -1,0 +1,15 @@
+{
+  "case_id": "case-mri-02",
+  "session_id": "sess-mri-02",
+  "member_id": "M100001",
+  "raw_provider_text": "Requesting prior auth for MRI lumbar spine (72148). 39-year-old with 5 days of uncomplicated acute low back pain after lifting a box. No radicular symptoms, no neurologic deficit, no red flags, and no conservative care tried yet. DX M54.5. Ordering provider NPI 1093817465.",
+  "structured": {
+    "service_code": "72148",
+    "diagnosis_codes": [
+      "M54.5"
+    ],
+    "requested_units": 1,
+    "place_of_service": "outpatient",
+    "provider_npi": "1093817465"
+  }
+}

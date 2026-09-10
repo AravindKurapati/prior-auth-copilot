@@ -1,0 +1,14 @@
+{
+  "server": "pa-copilot",
+  "tools": [
+    "benefit_lookup",
+    "criteria_check",
+    "provider_lookup"
+  ],
+  "resource_templates": [
+    "pa://criteria/{policy_id}"
+  ],
+  "static_resources": [
+    "pa://criteria/index"
+  ]
+}
