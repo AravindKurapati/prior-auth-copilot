@@ -27,9 +27,104 @@ def fake_index(tmp_path, monkeypatch):
 def test_predicate_gates_on_status():
     assert should_search_guidance("indeterminate") is True
     assert should_search_guidance("not_found") is True
+    assert should_search_guidance("not_met") is True
     assert should_search_guidance("met", unmet_requirements=["needs 6wk PT"]) is True
     assert should_search_guidance("excluded") is False
     assert should_search_guidance("met") is False
+
+
+def _hit(score: float, section: str = "Indications", idx: int = 0) -> dict:
+    return {
+        "chunk_id": f"PA-PSG:{section.lower().replace(' ', '-')}:{idx}",
+        "policy_id": "PA-PSG",
+        "service_code": "95810",
+        "section": section,
+        "doc_title": "Attended Polysomnography - Medical Necessity",
+        "clause_index": idx,
+        "text": f"clause {section} {idx}",
+        "score": score,
+    }
+
+
+def _patch_search(monkeypatch, *result_sets):
+    """Make ``index.search`` return each list in turn; record the queries."""
+    import pa_copilot.rag.tool as tool
+
+    calls: list[str] = []
+    pending = list(result_sets)
+
+    def fake_search(query, *, service_code=None, embedder=None):
+        calls.append(query)
+        return pending.pop(0) if pending else []
+
+    monkeypatch.setattr(tool.index, "search", fake_search)
+    tool.set_tool_embedder(FakeEmbedder())
+    return calls
+
+
+def test_tool_filters_out_sub_threshold_hits(monkeypatch):
+    """A hit below rag_min_score (0.30) is dropped; a clearing hit means no rewrite."""
+    calls = _patch_search(monkeypatch, [_hit(0.42), _hit(0.11, "Exclusions")])
+    try:
+        out = search_clinical_guidance.invoke({"query": "polysomnography"})
+    finally:
+        import pa_copilot.rag.tool as tool
+
+        tool.reset_tool_embedder()
+    assert len(calls) == 1  # cleared on first search -> no corrective rewrite
+    assert [c["clause_id"] for c in out] == ["PA-PSG:indications:0"]
+
+
+def test_tool_rewrite_returns_stronger_rewritten_set(monkeypatch):
+    """First search all-weak -> rewrite -> rewritten set clears the bar."""
+    calls = _patch_search(
+        monkeypatch,
+        [_hit(0.20), _hit(0.10, "Exclusions")],
+        [_hit(0.55), _hit(0.28, "Exclusions")],
+    )
+    try:
+        out = search_clinical_guidance.invoke({"query": "polysomnography"})
+    finally:
+        import pa_copilot.rag.tool as tool
+
+        tool.reset_tool_embedder()
+    assert len(calls) == 2
+    assert [c["clause_id"] for c in out] == ["PA-PSG:indications:0"]
+    assert out[0]["relevance"].endswith("score 0.55")
+
+
+def test_tool_rewrite_keeps_better_original_set_not_weaker_rewrite(monkeypatch):
+    """Originals rank better than the rewrite but still miss 0.30 -> [] (the
+    weaker rewritten hits are NOT returned at a lower bar)."""
+    calls = _patch_search(
+        monkeypatch,
+        [_hit(0.29), _hit(0.22, "Exclusions")],
+        [_hit(0.24), _hit(0.10, "Exclusions")],
+    )
+    try:
+        out = search_clinical_guidance.invoke({"query": "polysomnography"})
+    finally:
+        import pa_copilot.rag.tool as tool
+
+        tool.reset_tool_embedder()
+    assert len(calls) == 2
+    assert out == []
+
+
+def test_tool_all_weak_after_rewrite_returns_empty(monkeypatch):
+    calls = _patch_search(
+        monkeypatch,
+        [_hit(0.22), _hit(0.10, "Exclusions")],
+        [_hit(0.25), _hit(0.05, "Exclusions")],
+    )
+    try:
+        out = search_clinical_guidance.invoke({"query": "polysomnography"})
+    finally:
+        import pa_copilot.rag.tool as tool
+
+        tool.reset_tool_embedder()
+    assert len(calls) == 2
+    assert out == []
 
 
 def test_tool_returns_citations_for_psg(fake_index):

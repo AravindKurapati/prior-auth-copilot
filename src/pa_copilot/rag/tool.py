@@ -95,12 +95,23 @@ def should_search_guidance(
     step: the worker only reaches for the narrative guidance when the mechanical
     MCP ``criteria_check`` cannot settle the question.
 
+    ``criteria_status`` takes two overlapping vocabularies:
+
+    - the MCP ``criteria_check`` status (``not_found`` / ``excluded`` /
+      ``indeterminate``) on the pre-assessment path — there this reduces to
+      ``status != "excluded"``;
+    - the worker's own ``NecessityAssessment.criteria_status`` (``met`` /
+      ``not_met`` / ``indeterminate``) on a re-assessment loop.
+
     Returns ``True`` when:
 
     - ``criteria_status == "indeterminate"`` — policy exists but only a human /
       the narrative can verify the conditions;
     - ``criteria_status == "not_found"`` — no structured policy at all, the
       narrative is all we have;
+    - ``criteria_status == "not_met"`` — a mechanical/clinical fail where the
+      narrative interpretation matters most (a borderline gap may still be met
+      against the guidance);
     - ``unmet_requirements`` is non-empty — checklist gaps that need
       interpretation against the guidance.
 
@@ -109,7 +120,7 @@ def should_search_guidance(
     """
     if criteria_status == "excluded":
         return False
-    if criteria_status in ("indeterminate", "not_found"):
+    if criteria_status in ("indeterminate", "not_found", "not_met"):
         return True
     return bool(unmet_requirements)
 
@@ -124,24 +135,38 @@ def search_clinical_guidance(query: str, service_code: str | None = None) -> lis
     to scope the search to one policy.
 
     Returns a JSON-serializable list of citation dicts
-    (``source, clause_id, quote, relevance``); an empty list is a valid
-    "nothing relevant" answer.
+    (``source, clause_id, quote, relevance``), every one scoring at or above
+    ``rag_min_score``. An empty list is a valid "nothing relevant" answer and is
+    also what a *still-weak* retrieval returns after the one corrective rewrite —
+    PR5's worker reads empty citations as "still weak" → ``indeterminate`` →
+    ``human_review`` (uniform with the index-unavailable path).
     """
     settings = get_settings()
+    min_score = settings.rag_min_score
     try:
         hits = index.search(
             query, service_code=service_code, embedder=_get_tool_embedder()
         )
-        if not hits or hits[0]["score"] < settings.rag_min_score:
+        kept = [h for h in hits if h["score"] >= min_score]
+        if not kept:
+            # One corrective rewrite. Keep whichever of {original, rewritten}
+            # ranks better at the top, then hold *that* set to the same
+            # ``rag_min_score`` bar the originals just failed — the rewrite path
+            # must not be more permissive than the first search (I2).
             rewritten = query + _REWRITE_SUFFIX
             name = _service_name(service_code)
             if name:
                 rewritten = f"{rewritten} {name}"
-            hits = index.search(
+            rw_hits = index.search(
                 rewritten, service_code=service_code, embedder=_get_tool_embedder()
             )
-            hits = [h for h in hits if h["score"] >= settings.rag_rewrite_min_score]
-            hits = hits[: settings.rag_top_k]
+            orig_top = hits[0]["score"] if hits else 0.0
+            rw_top = rw_hits[0]["score"] if rw_hits else 0.0
+            best = rw_hits if rw_top >= orig_top else hits
+            kept = [h for h in best if h["score"] >= min_score]
+            if not kept:
+                # Nothing clears the bar even after the rewrite → "still weak".
+                return []
     except RagIndexUnavailable:
         # Do not crash the agent: PR5's worker then goes indeterminate ->
         # human_review on an empty citation list.
@@ -155,5 +180,5 @@ def search_clinical_guidance(query: str, service_code: str | None = None) -> lis
             quote=h["text"],
             relevance=f"{h['section']} · score {h['score']:.2f}",
         ).model_dump()
-        for h in hits
+        for h in kept
     ]
