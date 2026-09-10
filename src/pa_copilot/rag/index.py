@@ -7,9 +7,11 @@ metadata filter and returns plain dicts ordered by similarity.
 chromadb 0.6.3 emits a "Failed to send telemetry event ... capture() takes 1
 positional argument but 3 were given" line to stderr from its posthog client even
 with `anonymized_telemetry=False`, because the offending call fires before the
-setting binds. The suite runs with "pristine output" + `filterwarnings=error`, so
-we silence it at every layer below (env var before import, ChromaSettings on every
-client, the `chromadb.telemetry` logger, and a guarded `Posthog.capture` no-op).
+setting binds. The suite runs with "pristine output" + `filterwarnings=error`, so we silence it:
+`ANONYMIZED_TELEMETRY` env var set before `import chromadb`, `ChromaSettings(
+anonymized_telemetry=False, ...)` on every client, and — the layer that actually
+does it — raising the level of the `chromadb.telemetry` logger subtree, since the
+line is a `logging.error` record, not a bare `print`.
 """
 
 from __future__ import annotations
@@ -35,26 +37,49 @@ from pa_copilot.config import Settings, get_settings  # noqa: E402
 from pa_copilot.rag import corpus  # noqa: E402
 from pa_copilot.rag.embedder import Embedder  # noqa: E402
 
-# Layer 3: the telemetry line comes through `logging` on `chromadb.telemetry.*`.
+# Layer 3: the telemetry line ("Failed to send telemetry event ...") is a
+# `logging.error` record on `chromadb.telemetry.product.posthog`. Silencing that
+# logger subtree fully suppresses it — verified by
+# `test_no_chroma_telemetry_noise`, which fails if this is removed. (Layers 1-2
+# alone do not: the offending posthog `capture()` call fires before the setting
+# binds.) No monkeypatch of chromadb internals is needed.
 logging.getLogger("chromadb.telemetry").setLevel(logging.CRITICAL)
 logging.getLogger("chromadb").setLevel(logging.ERROR)
 
-# Layer 4: last resort — neuter the posthog capture path that raises.
-try:  # pragma: no cover - defensive; path may move across chromadb versions
-    from chromadb.telemetry.product.posthog import Posthog
+# The specific deprecation chromadb 0.6.3 raises from its own `types.py` under
+# pydantic >= 2.11 (`.model_fields` on an instance). Fall back to the parent class
+# if this pydantic build predates the dated subclass.
+try:  # pragma: no cover - version shim
+    from pydantic import PydanticDeprecatedSince211 as _ChromaPydWarning
+except Exception:  # pragma: no cover
+    from pydantic import PydanticDeprecationWarning as _ChromaPydWarning
 
-    Posthog.capture = lambda *a, **k: None  # type: ignore[assignment]
+# `delete_collection` on a missing name raises `ValueError` in chromadb 0.6.3;
+# newer builds use `chromadb.errors.NotFoundError`. Anything else (a lock or
+# permission error) must propagate, not be swallowed.
+_DELETE_MISSING_ERRORS: tuple[type[BaseException], ...] = (ValueError,)
+try:  # pragma: no cover - version shim
+    from chromadb.errors import NotFoundError as _ChromaNotFoundError
+
+    _DELETE_MISSING_ERRORS = (ValueError, _ChromaNotFoundError)
 except Exception:  # pragma: no cover
     pass
 
+_log = logging.getLogger(__name__)
+
+
 @contextmanager
 def _quiet_chroma():
-    """chromadb 0.6.3 trips a `PydanticDeprecatedSince211` (a `DeprecationWarning`)
-    from its own `types.py` under pydantic >= 2.11 when its collection objects are
-    touched. The suite runs `filterwarnings = ["error"]`, so scope-ignore that
-    third-party deprecation around Chroma calls without weakening the global policy."""
+    """Scope-ignore the pydantic deprecation chromadb 0.6.3 trips from its own
+    `types.py` when its collection objects are touched. The suite runs
+    `filterwarnings = ["error"]`; this narrows the ignore to that one third-party
+    category (also bounded to `chromadb.*` frames) without weakening the global
+    policy — a non-chromadb / non-pydantic deprecation inside the block still trips."""
     with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        warnings.filterwarnings("ignore", category=_ChromaPydWarning)
+        warnings.filterwarnings(
+            "ignore", category=DeprecationWarning, module=r"chromadb\..*"
+        )
         yield
 
 
@@ -131,8 +156,8 @@ def build_index(
         try:
             with _quiet_chroma():
                 client.delete_collection(settings.rag_collection)
-        except Exception:
-            pass
+        except _DELETE_MISSING_ERRORS as exc:
+            _log.debug("delete_collection(%s) skipped: %s", settings.rag_collection, exc)
     collection = get_collection(client, settings.rag_collection)
 
     embeddings = embedder.embed_documents([c.text for c in chunks])
@@ -174,10 +199,12 @@ def search(
 ) -> list[dict]:
     """Cosine similarity search over the guidance index.
 
-    Returns dicts keyed `policy_id, service_code, section, doc_title, clause_index,
-    text, score` (``score = 1 - distance``), ordered by score descending. Filters
-    on `service_code` metadata when given. Raises `RagIndexUnavailable` if the
-    collection is missing or empty.
+    Returns dicts keyed `chunk_id, policy_id, service_code, section, doc_title,
+    clause_index, text, score` (``score = 1 - distance``), ordered by score
+    descending. `chunk_id` is rebuilt to match `corpus.Chunk.chunk_id`
+    (``{policy_id}:{section-slug}:{clause_index}``) so callers need not re-slugify.
+    Filters on `service_code` metadata when given. Raises `RagIndexUnavailable`
+    if the collection is missing or empty.
     """
     settings, embedder = _resolve(settings, embedder)
     k = k or settings.rag_top_k
@@ -213,6 +240,11 @@ def search(
     documents = res["documents"][0]
     hits = [
         {
+            "chunk_id": (
+                f"{md['policy_id']}:"
+                f"{str(md['section']).lower().replace(' ', '-')}:"
+                f"{md['clause_index']}"
+            ),
             "policy_id": md["policy_id"],
             "service_code": md["service_code"],
             "section": md["section"],

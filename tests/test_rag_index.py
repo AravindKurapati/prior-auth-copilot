@@ -1,3 +1,4 @@
+import logging
 import zlib
 
 import pytest
@@ -65,6 +66,7 @@ def test_search_filters_by_service_code(tmp_path, monkeypatch):
     )
     assert hits and all(h["service_code"] == "95810" for h in hits)
     assert "score" in hits[0]
+    assert "chunk_id" in hits[0]
 
 
 def test_search_without_index_raises_clearly(tmp_path, monkeypatch):
@@ -76,9 +78,41 @@ def test_search_without_index_raises_clearly(tmp_path, monkeypatch):
         rag_index.search("anything", embedder=FakeEmbedder())
 
 
-def test_no_chroma_telemetry_noise(capfd):
-    import importlib
+def test_no_chroma_telemetry_noise(tmp_path, monkeypatch, caplog, capfd):
+    """chromadb 0.6.3 emits "Failed to send telemetry event ... capture() takes 1
+    positional argument but 3 were given" on every `PersistentClient` /
+    collection call. It is a `logging` record (not a bare print) so `caplog` is
+    what catches it under pytest; `capfd` additionally guards a future
+    print-based regression. Both are checked against the *real* build + search
+    path — a module reload never creates a client, so reload-only checks pass
+    even with all silencing removed. This fails if the
+    `logging.getLogger("chromadb.telemetry")` line in `rag/index.py` is removed
+    (verified)."""
+    monkeypatch.setenv("PA_CHROMA_DIR", str(tmp_path / "chroma"))
+    from pa_copilot.config import get_settings
 
-    importlib.reload(rag_index)
+    get_settings.cache_clear()
+    caplog.set_level(logging.WARNING, logger="chromadb")
+    rag_index.build_index(embedder=FakeEmbedder(), rebuild=True)
+    rag_index.search("polysomnography", embedder=FakeEmbedder())
     out, err = capfd.readouterr()
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert "Failed to send telemetry" not in logged
     assert "Failed to send telemetry" not in err
+    assert "Failed to send telemetry" not in out
+
+
+@pytest.mark.slow
+def test_real_model_search_ranks_right_policy(tmp_path, monkeypatch):
+    monkeypatch.setenv("PA_CHROMA_DIR", str(tmp_path / "chroma"))
+    from pa_copilot.config import get_settings
+
+    get_settings.cache_clear()
+    from pa_copilot.rag.embedder import BgeEmbedder
+
+    e = BgeEmbedder("BAAI/bge-small-en-v1.5")
+    rag_index.build_index(embedder=e, rebuild=True)
+    hits = rag_index.search(
+        "attended in-lab polysomnography vs home sleep test", embedder=e
+    )
+    assert hits[0]["policy_id"] == "PA-PSG"
