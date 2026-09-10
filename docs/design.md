@@ -240,7 +240,7 @@ checkpoint in a **separate process invocation**. Evidence:
 | Kind | Name | Signature -> returns | Backing |
 |---|---|---|---|
 | tool | `benefit_lookup` | `(member_id, service_code)` -> `covered`, `requires_pa`, `network_status`, `plan_id` | `data/synthetic/benefits.json` |
-| tool | `criteria_check` | `(service_code, diagnosis_codes)` -> applicable `policy_id` + structured requirement checklist + `status` (`met`/`not_met`/`indeterminate` best-effort) | `data/synthetic/criteria.json` |
+| tool | `criteria_check` | `(service_code, diagnosis_codes)` -> applicable `policy_id` + structured requirement checklist + `status` (`not_found`/`excluded`/`indeterminate` best-effort) | `data/synthetic/criteria.json` |
 | tool | `provider_lookup` | `(npi)` -> `name`, `specialty`, `network_status` | `data/synthetic/providers.json` |
 | resource | `pa://criteria/{policy_id}` and `pa://criteria/index` | full structured coverage-policy document (required conditions, exclusions, evidence requirements) / index of all policy ids | `data/synthetic/criteria.json` |
 

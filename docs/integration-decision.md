@@ -18,7 +18,7 @@ The integration decision addresses how the copilot's agents communicate with pay
 
 ### (a) Custom MCP Server (chosen)
 
-A FastMCP server running over stdio, exposing three tools (`benefit_lookup`, `provider_lookup`, `criteria_check`) and one resource namespace (`pa://criteria/{policy_id}`), consumed by the copilot via `langchain-mcp-adapters`.
+A FastMCP server running over stdio, exposing three tools (`benefit_lookup`, `provider_lookup`, `criteria_check`) and two resources (`pa://criteria/{policy_id}` for templated policy documents, and `pa://criteria/index` for the static index of all policies), consumed by the copilot via `langchain-mcp-adapters`.
 
 ### (b) Plain in-process `@tool` functions
 
@@ -40,7 +40,7 @@ A separate "payer systems" agent running its own graph, with the copilot's worke
 
 ## Decision: MCP Server
 
-**We use a custom MCP server over stdio, providing three tools and one resource, consumed via `langchain-mcp-adapters`.**
+**We use a custom MCP server over stdio, providing three tools and two resources, consumed via `langchain-mcp-adapters`.**
 
 ### Rationale
 
@@ -48,7 +48,7 @@ A separate "payer systems" agent running its own graph, with the copilot's worke
 
 2. **Swappability** — The protocol-mediated interface means the backing store (synthetic JSON in this demo, a real payer API in production) can change without touching the agent code. The agent always sees the same tool signatures and resource URIs.
 
-3. **Tools + resources in one interface** — MCP allows both **tools** (deterministic functions like `benefit_lookup(member_id, service_code)`) **and** **resources** (named addressable data like `pa://criteria/{policy_id}`). This models a realistic system-of-record: transactional lookups via tools, full documents via resources.
+3. **Tools + resources in one interface** — MCP allows both **tools** (deterministic functions like `benefit_lookup(member_id, service_code)`) **and** **resources** (named addressable data like `pa://criteria/{policy_id}` and `pa://criteria/index`). This models a realistic system-of-record: transactional lookups via tools, full documents via resources.
 
 4. **Brief mandate** — The brief specifically requires a custom MCP server consumed via `langchain-mcp-adapters`, and this demonstrates the interoperability requirement.
 
@@ -78,8 +78,8 @@ A2A is justified when two autonomous agents negotiate or have conflicting goals 
 
 The MCP server and the agentic-RAG system are complementary:
 
-- **MCP = structured, deterministic system-of-record** — `benefit_lookup` returns a definite yes/no/unknown; `criteria_check` returns a structured checklist + a mechanical status (`met` / `not_met` / `indeterminate`). These are lookups into versioned, auditable data.
-- **RAG = unstructured narrative interpretation** — `search_clinical_guidance()` retrieves *why* a criterion matters (step-therapy narrative, conservative-care duration, medical literature snippets). The `medical_necessity` agent **decides** whether to call RAG only when `criteria_check` returns `indeterminate`, or when the checklist needs narrative interpretation.
+- **MCP = structured, deterministic system-of-record** — `benefit_lookup` returns a definite yes/no/unknown; `criteria_check` returns a structured checklist + a mechanical status (`not_found` / `excluded` / `indeterminate`). These are lookups into versioned, auditable data.
+- **RAG = unstructured narrative interpretation** — `search_clinical_guidance()` (planned, PR3) retrieves *why* a criterion matters (step-therapy narrative, conservative-care duration, medical literature snippets). The `medical_necessity` agent **decides** whether to call RAG only when `criteria_check` returns `indeterminate`, or when the checklist needs narrative interpretation.
 
 The split preserves auditability: structured lookups are reproducible deterministic calls; narrative guidance is retrieval + LLM interpretation, flagged differently in traces.
 
