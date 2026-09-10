@@ -1,6 +1,6 @@
 # MCP tool-call transcript (Gemini agent -> pa MCP server)
 
-> NOTE: tool calls and tool results below are REAL (captured from the pa MCP server via langchain-mcp-adapters). The agent's natural-language turns are representative — regenerate with a live GEMINI_API_KEY via `pytest -m slow -k transcript`.
+> NOTE: tool calls and tool results below are REAL (captured from the pa MCP server via langchain-mcp-adapters). The agent's natural-language turns are representative — regenerate with a live GEMINI_API_KEY via `pytest -m slow -k transcript`. Tool-result JSON was pretty-printed for readability (the live adapter returns compact JSON).
 
 ## user
 

@@ -38,15 +38,15 @@ async def test_ac10_loaded_tool_round_trips_through_adapter():
     payload = json.loads(result) if isinstance(result, str) else result
     assert payload["policy_id"] == "PA-MRI-LUMBAR"
 
-    # record a structured tool-call line as evidence
+    # record a structured tool-call line as evidence (byte-stable: overwrite, not append)
     log = Path(load_settings(env_file=None).traces_dir) / "mcp_tool_calls.jsonl"
-    with log.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps({
-            "via": "langchain-mcp-adapters",
-            "tool": "criteria_check",
-            "args": {"service_code": "72148", "diagnosis_codes": ["M54.16"]},
-            "result_status": payload["status"],
-        }) + "\n")
+    entry = {
+        "via": "langchain-mcp-adapters",
+        "tool": "criteria_check",
+        "args": {"service_code": "72148", "diagnosis_codes": ["M54.16"]},
+        "result_status": payload["status"],
+    }
+    log.write_text(json.dumps(entry) + "\n", encoding="utf-8", newline="\n")
 
 
 async def test_ac10_resource_read_through_adapter():
@@ -54,9 +54,18 @@ async def test_ac10_resource_read_through_adapter():
     assert "43239" in text
 
 
+async def test_ac10_capability_report_lists_tools():
+    from pa_copilot.mcp_client import capability_report
+
+    report = await capability_report()
+    assert isinstance(report, dict)
+    assert "tools" in report
+    assert "criteria_check" in report["tools"]
+
+
 @pytest.mark.slow
 @pytest.mark.skipif(not os.environ.get("GEMINI_API_KEY"), reason="needs GEMINI_API_KEY")
-async def test_ac10_gemini_agent_invokes_mcp_tool_transcript(tmp_path):
+async def test_ac10_gemini_agent_invokes_mcp_tool_transcript():
     from langchain.chat_models import init_chat_model
 
     s = load_settings(env_file=None)
