@@ -24,31 +24,45 @@ _log = logging.getLogger(__name__)
 
 _REWRITE_SUFFIX = " medical necessity criteria indications"
 
-# Module-level embedder override. ``None`` -> lazily build the real ``BgeEmbedder``
-# per call; tests set a ``FakeEmbedder`` here via ``set_tool_embedder`` so no model
-# is downloaded.
-_tool_embedder: Embedder | None = None
+# The module-level default embedder — built once, lazily, on first use and then
+# reused for every tool call (the real ``BgeEmbedder`` lazy-loads a ~130MB
+# sentence-transformers model per instance, so a fresh instance per call would
+# reload it, twice on the corrective-rewrite path).
+_default_embedder: Embedder | None = None
+# ``set_tool_embedder`` slot — tests point this at a ``FakeEmbedder`` so no model
+# is downloaded; ``reset_tool_embedder`` clears it back to ``None`` without
+# discarding the cached real default.
+_tool_embedder_override: Embedder | None = None
 
 
 def set_tool_embedder(embedder: Embedder) -> None:
     """Force ``search_clinical_guidance`` to use ``embedder`` (test seam)."""
-    global _tool_embedder
-    _tool_embedder = embedder
+    global _tool_embedder_override
+    _tool_embedder_override = embedder
 
 
 def reset_tool_embedder() -> None:
-    """Clear any override set by :func:`set_tool_embedder`."""
-    global _tool_embedder
-    _tool_embedder = None
+    """Drop any override set by :func:`set_tool_embedder`.
+
+    Leaves the cached real default in place — it is safe to keep.
+    """
+    global _tool_embedder_override
+    _tool_embedder_override = None
 
 
 def _get_tool_embedder() -> Embedder:
-    if _tool_embedder is not None:
-        return _tool_embedder
-    # Lazy: never construct the sentence-transformers model at import time.
-    from pa_copilot.rag.embedder import BgeEmbedder
+    global _default_embedder
+    if _tool_embedder_override is not None:
+        return _tool_embedder_override
+    if _default_embedder is None:
+        # Lazy: never construct the sentence-transformers model at import time.
+        from pa_copilot.rag.embedder import BgeEmbedder
 
-    return BgeEmbedder(get_settings().embedding_model)
+        settings = get_settings()
+        _default_embedder = BgeEmbedder(
+            settings.embedding_model, query_prefix=settings.rag_query_prefix
+        )
+    return _default_embedder
 
 
 def _service_name(service_code: str | None) -> str | None:

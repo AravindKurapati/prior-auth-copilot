@@ -57,6 +57,25 @@ def test_tool_returns_empty_when_index_unavailable(tmp_path, monkeypatch):
     assert out == []
 
 
+def test_default_embedder_is_cached_and_override_restores_it(monkeypatch):
+    import pa_copilot.rag.tool as tool
+
+    # monkeypatch.setattr restores both module globals after the test.
+    monkeypatch.setattr(tool, "_default_embedder", None)
+    monkeypatch.setattr(tool, "_tool_embedder_override", None)
+
+    # No override: the default is built once (lazily — no model download) and reused.
+    default = tool._get_tool_embedder()
+    assert tool._get_tool_embedder() is default
+
+    # An override wins; reset drops it back to the SAME cached default, not None.
+    fake = FakeEmbedder()
+    tool.set_tool_embedder(fake)
+    assert tool._get_tool_embedder() is fake
+    tool.reset_tool_embedder()
+    assert tool._get_tool_embedder() is default
+
+
 def test_ac11_decision_evidence_committed():
     md = Path(get_settings().traces_dir) / "agentic_rag_decision.md"
     assert md.exists()

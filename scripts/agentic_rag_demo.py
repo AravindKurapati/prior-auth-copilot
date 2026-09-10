@@ -9,6 +9,11 @@ opens the retrieval tool inside the loop, an ``excluded`` one does not. The
 document is byte-stable (no timestamps); real-model cosine scores are stable to
 two decimals, which is all the doc prints.
 
+Score-drift caveat: regenerating the doc on a different ``torch`` /
+``sentence-transformers`` build may shift those 2-dp scores slightly.
+``test_ac11_decision_evidence_committed`` only asserts substrings, so it will NOT
+flag the drift — regenerate and eyeball the doc whenever the model stack changes.
+
 ``sys.path[0]`` is ``scripts/`` when invoked this way, so put the repo root on the
 path first (Ruling R3).
 """
