@@ -44,6 +44,12 @@ def frozen_now() -> str:
 
 
 @pytest.fixture
+def fake_embedder():
+    from _fakes import FakeEmbedder  # noqa: PLC0415
+    return FakeEmbedder()
+
+
+@pytest.fixture
 def sample_request() -> dict:
     return {
         "case_id": "case-0001",
