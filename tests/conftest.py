@@ -50,6 +50,13 @@ def fake_embedder():
 
 
 @pytest.fixture
+def memory_store(tmp_path, fake_embedder):
+    from pa_copilot.memory.store import memory_store as _open  # noqa: PLC0415
+    with _open(tmp_path / "memory.db", embedder=fake_embedder) as store:
+        yield store
+
+
+@pytest.fixture
 def sample_request() -> dict:
     return {
         "case_id": "case-0001",
