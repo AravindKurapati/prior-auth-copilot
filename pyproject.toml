@@ -17,7 +17,7 @@ dependencies = [
     "langchain-mcp-adapters>=0.1.10,<0.2",
     "mcp>=1.9,<2",
     "langmem>=0.0.20",
-    "chromadb>=0.5,<0.7",
+    "chromadb>=0.6,<0.7",  # rag/index.py uses the 0.6 collection API + `where=` shorthand
     "sentence-transformers>=3.0",
     "pydantic>=2.7,<3",
     "typer>=0.12",
