@@ -39,6 +39,16 @@ class Chunk:
     text: str
 
 
+def section_slug(section: str) -> str:
+    """Canonical slug for a guidance section heading.
+
+    The single source of truth for the ``{section}`` component of a
+    ``chunk_id`` — used by ``_parse_doc`` here and rebuilt identically by
+    ``rag/index.py::search`` so callers never re-slugify.
+    """
+    return section.lower().replace(" ", "-")
+
+
 def _split_clauses(body_lines: list[str]) -> list[str]:
     """Split a section body into clauses: blank lines separate paragraphs and each
     ``- `` bullet is its own clause. Whitespace-stripped, empties dropped.
@@ -88,11 +98,10 @@ def _parse_doc(text: str, policy_id: str, service_code: str) -> list[Chunk]:
 
     chunks: list[Chunk] = []
     for section, body_lines in sections:
-        section_slug = section.lower().replace(" ", "-")
         for clause_index, clause_text in enumerate(_split_clauses(body_lines)):
             chunks.append(
                 Chunk(
-                    chunk_id=f"{policy_id}:{section_slug}:{clause_index}",
+                    chunk_id=f"{policy_id}:{section_slug(section)}:{clause_index}",
                     policy_id=policy_id,
                     service_code=service_code,
                     doc_title=doc_title,

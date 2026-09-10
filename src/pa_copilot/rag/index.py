@@ -242,7 +242,7 @@ def search(
         {
             "chunk_id": (
                 f"{md['policy_id']}:"
-                f"{str(md['section']).lower().replace(' ', '-')}:"
+                f"{corpus.section_slug(str(md['section']))}:"
                 f"{md['clause_index']}"
             ),
             "policy_id": md["policy_id"],

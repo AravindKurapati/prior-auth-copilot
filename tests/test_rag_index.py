@@ -1,11 +1,15 @@
 import logging
-import zlib
 
 import pytest
 
+# `tests/` is on sys.path (pytest prepend import mode); re-exported for callers
+# that historically did `from tests.test_rag_index import FakeEmbedder`.
+from _fakes import FakeEmbedder
 from pa_copilot.rag import index as rag_index
 from pa_copilot.rag.corpus import load_guidance
 from pa_copilot.rag.embedder import EMBED_DIM_BGE_SMALL, BgeEmbedder
+
+__all__ = ["FakeEmbedder"]
 
 
 @pytest.mark.slow
@@ -15,30 +19,6 @@ def test_bge_embedder_shapes():
     assert len(v) == EMBED_DIM_BGE_SMALL
     d = e.embed_documents(["home sleep apnea test", "attended in-lab study"])
     assert len(d) == 2 and len(d[0]) == EMBED_DIM_BGE_SMALL
-
-
-class FakeEmbedder:
-    """Deterministic bag-of-words hashing embedder — no model download.
-
-    Uses ``zlib.crc32`` for token bucketing because builtin ``hash()`` on strings
-    is per-process randomized (PYTHONHASHSEED), which would make the index
-    non-reproducible across runs.
-    """
-
-    DIM = 64
-
-    def _vec(self, text: str) -> list[float]:
-        v = [0.0] * self.DIM
-        for tok in text.lower().split():
-            v[zlib.crc32(tok.encode()) % self.DIM] += 1.0
-        n = sum(x * x for x in v) ** 0.5 or 1.0
-        return [x / n for x in v]
-
-    def embed_documents(self, texts):
-        return [self._vec(t) for t in texts]
-
-    def embed_query(self, text):
-        return self._vec(text)
 
 
 def test_build_index_is_idempotent(tmp_path, monkeypatch):
