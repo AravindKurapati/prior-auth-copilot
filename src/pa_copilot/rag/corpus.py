@@ -2,7 +2,8 @@
 
 Reads the synthetic `data/synthetic/clinical_guidance/*.md` narratives, splits each
 into policy-tagged clause chunks (one per bullet / paragraph, plus the pre-heading
-``lead``), and can dump them to a committed JSONL file for the index build.
+block, whose section is named ``Overview``), and can dump them to a committed JSONL
+file for the index build.
 
 Loading is deterministic: files are processed in sorted order and sections in
 document order, with no randomness or wall-clock input.
@@ -88,8 +89,9 @@ def _parse_doc(text: str, policy_id: str, service_code: str) -> list[Chunk]:
         doc_title = lines[0][2:].strip()
         lines = lines[1:]
 
-    # (section_name, [body lines]) in document order; pre-heading block is "lead".
-    sections: list[tuple[str, list[str]]] = [("lead", [])]
+    # (section_name, [body lines]) in document order; the pre-heading block is
+    # section "Overview" (surfaces to human reviewers in CriteriaCitation.relevance).
+    sections: list[tuple[str, list[str]]] = [("Overview", [])]
     for line in lines:
         if line.startswith("## "):
             sections.append((line[3:].strip(), []))
