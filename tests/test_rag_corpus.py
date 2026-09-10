@@ -3,8 +3,8 @@ from pa_copilot.rag import corpus
 
 
 def test_every_policy_has_a_guidance_file():
-    mapped = {pid for pid, _ in corpus.POLICY_BY_FILE.values()}
-    assert mapped == {s["policy_id"] for s in g.SERVICES}
+    mapped = {(pid, sc) for pid, sc in corpus.POLICY_BY_FILE.values()}
+    assert mapped == {(s["policy_id"], s["service_code"]) for s in g.SERVICES}
 
 
 def test_load_is_deterministic_and_tagged():

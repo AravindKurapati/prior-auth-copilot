@@ -1,0 +1,15 @@
+# Agentic-RAG retrieval knobs (PR3).
+#
+# collection          Chroma collection name for the clinical-guidance index.
+# top_k               how many clauses `search()` returns by default.
+# min_score           cosine similarity (1 - distance) a hit must clear to be
+#                     treated as usable evidence by the retrieve node.
+# rewrite_min_score   below this, the best hit is weak enough that the agent
+#                     should rewrite the query and retry rather than answer.
+# query_prefix        instruction prepended to *queries only* for BGE-style
+#                     models ("" for bge-small-en-v1.5, which needs none).
+collection: pa_guidance
+top_k: 4
+min_score: 0.30
+rewrite_min_score: 0.20
+query_prefix: ""

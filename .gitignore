@@ -20,7 +20,7 @@ venv/
 .pa_state.db-*
 .pa_memory.db
 .pa_memory.db-*
-.pa_chroma/
+.pa_chroma*/
 *.sqlite3
 
 # OS / editor

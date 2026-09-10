@@ -41,7 +41,11 @@ class Chunk:
 
 def _split_clauses(body_lines: list[str]) -> list[str]:
     """Split a section body into clauses: blank lines separate paragraphs and each
-    ``- `` bullet is its own clause. Whitespace-stripped, empties dropped."""
+    ``- `` bullet is its own clause. Whitespace-stripped, empties dropped.
+
+    Assumes single-line bullets / paragraphs (a bullet or paragraph is never
+    wrapped across source lines) — true for the committed guidance corpus.
+    """
     clauses: list[str] = []
     buffer: list[str] = []
 

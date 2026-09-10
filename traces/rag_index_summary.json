@@ -1,0 +1,7 @@
+{
+  "doc_count": 6,
+  "chunk_count": 46,
+  "embedding_model": "BAAI/bge-small-en-v1.5",
+  "corpus_sha": "c7b280420b07b5adb2876468f57944b441cf45b6",
+  "collection": "pa_guidance"
+}
