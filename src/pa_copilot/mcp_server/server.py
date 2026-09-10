@@ -11,7 +11,7 @@ from mcp.server.fastmcp import FastMCP
 
 from pa_copilot.mcp_server import data_access
 
-mcp = FastMCP("pa-copilot")
+mcp = FastMCP("pa-copilot", log_level="WARNING")
 
 
 @mcp.tool()
@@ -36,13 +36,17 @@ def provider_lookup(npi: str) -> dict:
 
 
 @mcp.tool()
-def criteria_check(service_code: str, diagnosis_codes: list[str]) -> dict:
+def criteria_check(
+    service_code: str, diagnosis_codes: list[str] | None = None
+) -> dict:
     """Run the mechanical medical-necessity check for a service against its policy.
 
     Use this to fetch the prior-auth policy for ``service_code`` and screen the
-    supplied ``diagnosis_codes`` against documented exclusions. ``status`` is one
-    of ``not_found`` / ``excluded`` / ``indeterminate`` — ``indeterminate`` means
-    a policy exists but a human must verify the clinical conditions.
+    supplied ``diagnosis_codes`` against documented exclusions. ``diagnosis_codes``
+    is optional — omit it for a pure policy lookup (a request with no coded
+    diagnosis), and ``status`` is then ``indeterminate``. ``status`` is one of
+    ``not_found`` / ``excluded`` / ``indeterminate`` — ``indeterminate`` means a
+    policy exists but a human must verify the clinical conditions.
     """
     return data_access.criteria_check(service_code, diagnosis_codes)
 

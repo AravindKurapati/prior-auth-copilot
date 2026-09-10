@@ -20,6 +20,15 @@ from pa_copilot.config import get_settings
 _CORPORA_CACHE: dict[str, dict] = {}
 
 
+class CorporaUnavailable(Exception):
+    """The synthetic corpus directory is missing or incomplete.
+
+    This is the one case `data_access` does raise on: a missing directory is a
+    deployment error, not a lookup miss, and a silently-empty corpus (every
+    lookup returning ``found: False``) would hide it.
+    """
+
+
 def _synthetic_dir(synthetic_dir: str | Path | None) -> Path:
     if synthetic_dir is None:
         synthetic_dir = get_settings().synthetic_dir
@@ -27,25 +36,39 @@ def _synthetic_dir(synthetic_dir: str | Path | None) -> Path:
 
 
 def clear_corpora_cache() -> None:
-    """Drop the module-level parsed-corpus cache (test ergonomics)."""
+    """Drop both the module-level parsed-corpus cache **and** the ``get_settings``
+    ``lru_cache`` (test ergonomics).
+
+    ``_synthetic_dir(None)`` resolves through ``get_settings()``, which is an
+    ``lru_cache(maxsize=1)`` singleton — so clearing only ``_CORPORA_CACHE`` is
+    not enough to make a test that repoints ``PA_SYNTHETIC_DIR`` take effect
+    in-process.
+    """
     _CORPORA_CACHE.clear()
+    get_settings.cache_clear()
 
 
 def load_corpora(synthetic_dir: str | Path | None = None) -> dict:
     """Read `benefits.json`, `providers.json`, `criteria.json` once.
 
     Returns ``{"benefits": ..., "providers": ..., "criteria": ...}``. Cached at
-    module level keyed by the resolved directory path.
+    module level keyed by the resolved directory path. Raises
+    :class:`CorporaUnavailable` if the directory or a file is missing.
     """
     base = _synthetic_dir(synthetic_dir).resolve()
     key = str(base)
     cached = _CORPORA_CACHE.get(key)
     if cached is None:
-        cached = {
-            "benefits": json.loads((base / "benefits.json").read_text(encoding="utf-8")),
-            "providers": json.loads((base / "providers.json").read_text(encoding="utf-8")),
-            "criteria": json.loads((base / "criteria.json").read_text(encoding="utf-8")),
-        }
+        try:
+            cached = {
+                "benefits": json.loads((base / "benefits.json").read_text(encoding="utf-8")),
+                "providers": json.loads((base / "providers.json").read_text(encoding="utf-8")),
+                "criteria": json.loads((base / "criteria.json").read_text(encoding="utf-8")),
+            }
+        except FileNotFoundError as exc:
+            raise CorporaUnavailable(
+                f"synthetic corpora not found under {base} (missing {exc.filename})"
+            ) from exc
         _CORPORA_CACHE[key] = cached
     return cached
 
@@ -133,7 +156,10 @@ def _find_policy_by_service(criteria: dict, service_code: str) -> tuple[str | No
 
 
 def criteria_check(
-    service_code: str, diagnosis_codes: list[str], *, corpora: dict | None = None
+    service_code: str,
+    diagnosis_codes: list[str] | str | None = None,
+    *,
+    corpora: dict | None = None,
 ) -> dict:
     """Mechanical medical-necessity check for ``service_code``.
 
@@ -141,6 +167,10 @@ def criteria_check(
     ``excluded`` (a supplied diagnosis is a documented exclusion), or
     ``indeterminate`` (policy exists but only a human can verify the conditions).
     """
+    if isinstance(diagnosis_codes, str):
+        # a bare string would otherwise iterate character-by-character below —
+        # a false negative on an exclusion, i.e. the unsafe direction.
+        diagnosis_codes = [diagnosis_codes]
     criteria = _corpora(corpora)["criteria"]
     policy_id, policy = _find_policy_by_service(criteria, service_code)
     if policy is None:

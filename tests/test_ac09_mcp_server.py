@@ -55,6 +55,12 @@ async def test_ac09_server_exposes_three_tools_and_the_resource() -> None:
         )
         assert json.loads(cc.content[0].text)["status"] == "indeterminate"
 
+        # diagnosis_codes is optional — a pure policy lookup must not raise
+        cc_nodx = await session.call_tool("criteria_check", {"service_code": "72148"})
+        cc_nodx_payload = json.loads(cc_nodx.content[0].text)
+        assert cc_nodx_payload["status"] == "indeterminate"
+        assert cc_nodx_payload["policy_id"] == "PA-MRI-LUMBAR"
+
         pl = await session.call_tool("provider_lookup", {"npi": "1093817465"})
         assert json.loads(pl.content[0].text)["found"] is True
 

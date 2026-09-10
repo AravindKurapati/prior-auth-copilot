@@ -1,3 +1,5 @@
+import pytest
+
 from pa_copilot.mcp_server import data_access as da
 
 
@@ -39,6 +41,19 @@ def test_criteria_indeterminate_excluded_and_not_found():
 
     # a None diagnosis list must not raise (knee_scope_missing_info sample omits it)
     assert da.criteria_check("72148", None)["status"] == "indeterminate"
+    assert da.criteria_check("72148")["status"] == "indeterminate"
+
+    # a bare string is one code, not an iterable of characters (a bare "M54.5"
+    # must not silently miss the M54.5 exclusion)
+    assert da.criteria_check("72148", "M54.5")["status"] == "excluded"
+
+
+def test_missing_corpus_dir_raises_corpora_unavailable(tmp_path):
+    da.clear_corpora_cache()
+    with pytest.raises(da.CorporaUnavailable) as exc:
+        da.load_corpora(tmp_path / "no-such-corpus-dir")
+    assert "no-such-corpus-dir" in str(exc.value)
+    da.clear_corpora_cache()
 
 
 def test_policy_resource_helpers():
