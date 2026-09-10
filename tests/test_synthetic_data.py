@@ -24,13 +24,23 @@ def test_benefits_reference_real_services():
 def test_samples_cover_the_required_scenarios():
     samples = g.build_samples()
     assert set(samples) >= {
-        "mri_lumbar_clearcut", "knee_scope_missing_info", "egd_not_covered",
-        "psg_indeterminate", "injection_prompt_injection",
+        "mri_lumbar_clearcut", "mri_lumbar_excluded", "knee_scope_missing_info",
+        "egd_not_covered", "psg_indeterminate", "injection_prompt_injection",
         "no_pa_required", "unknown_member",
     }
     inj = samples["injection_prompt_injection"]["raw_provider_text"].lower()
     assert "ignore your instructions" in inj
     assert "diagnosis_codes" not in samples["knee_scope_missing_info"]["structured"]
+
+
+def test_excluded_sample_hits_a_documented_mri_exclusion():
+    samples = g.build_samples()
+    criteria = g.build_criteria()
+    s = samples["mri_lumbar_excluded"]
+    dx = s["structured"]["diagnosis_codes"]
+    excluded = criteria["PA-MRI-LUMBAR"]["excluded_diagnoses"]
+    assert s["structured"]["service_code"] == "72148"
+    assert any(code in excluded for code in dx)
 
 
 def test_no_pa_required_sample_resolves_to_a_no_pa_benefit():

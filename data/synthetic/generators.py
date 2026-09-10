@@ -12,7 +12,7 @@ build_criteria()       {policy_id: {service_code, title, required_conditions,
                                     exclusions, evidence_requirements,
                                     excluded_diagnoses}}  (6 policies)
 build_clinical_guidance()  {filename: markdown_text}                    (1 per policy)
-build_samples()        {name: request_dict}                            (7 scenarios)
+build_samples()        {name: request_dict}                            (8 scenarios)
 """
 
 from __future__ import annotations
@@ -364,13 +364,16 @@ def build_clinical_guidance() -> dict[str, str]:
 
 
 def build_samples() -> dict[str, dict]:
-    """Seven raw provider submissions, each shaped like the `sample_request` fixture.
+    """Eight raw provider submissions, each shaped like the `sample_request` fixture.
 
     NOTE: this is the pre-parse provider submission shape, not a valid `PARequest`.
     `knee_scope_missing_info["structured"]` deliberately omits `diagnosis_codes`.
     `no_pa_required` resolves to a covered service with `requires_pa=False` (benefit
     check short-circuits). `unknown_member` uses a member id and NPI absent from the
     synthetic corpora (intake flags, pipeline degrades gracefully).
+    `mri_lumbar_excluded` carries DX `M54.5`, a documented exclusion for
+    `PA-MRI-LUMBAR` — the only sample that makes MCP `criteria_check` return
+    `excluded` (needed for PR5 AC-03 + PR8).
     """
     return {
         "mri_lumbar_clearcut": {
@@ -386,6 +389,24 @@ def build_samples() -> dict[str, dict]:
             "structured": {
                 "service_code": "72148",
                 "diagnosis_codes": ["M54.16"],
+                "requested_units": 1,
+                "place_of_service": "outpatient",
+                "provider_npi": "1093817465",
+            },
+        },
+        "mri_lumbar_excluded": {
+            "case_id": "case-mri-02",
+            "session_id": "sess-mri-02",
+            "member_id": "M100001",
+            "raw_provider_text": (
+                "Requesting prior auth for MRI lumbar spine (72148). 39-year-old with 5 days "
+                "of uncomplicated acute low back pain after lifting a box. No radicular "
+                "symptoms, no neurologic deficit, no red flags, and no conservative care "
+                "tried yet. DX M54.5. Ordering provider NPI 1093817465."
+            ),
+            "structured": {
+                "service_code": "72148",
+                "diagnosis_codes": ["M54.5"],
                 "requested_units": 1,
                 "place_of_service": "outpatient",
                 "provider_npi": "1093817465",

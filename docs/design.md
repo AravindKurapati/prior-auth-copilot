@@ -247,6 +247,17 @@ checkpoint in a **separate process invocation**. Evidence:
 The MCP server **reads** the synthetic corpora directly from `data/synthetic/`; there is no
 copy under `src/pa_copilot/mcp_server/data/`.
 
+**Status vocabulary — MCP `criteria_check.status` → `NecessityAssessment.criteria_status`** (PR5 consumes this).
+The MCP tool's `status ∈ {not_found, excluded, indeterminate}` is a *mechanical* screen; the
+worker model's `criteria_status ∈ {met, not_met, indeterminate}` is the *clinical* judgment.
+They share the word `indeterminate` but do not mean the same thing — the mapping is:
+
+| MCP `criteria_check.status` | `medical_necessity` worker does | resulting `criteria_status` |
+|---|---|---|
+| `not_found` | no policy for this service code — cannot assess mechanically | `indeterminate`, `policy_id = None` |
+| `excluded` | a supplied diagnosis is a documented exclusion — strong signal, worker still confirms against the clinical summary | usually `not_met` |
+| `indeterminate` | policy exists; worker assesses the checklist against the clinical summary, calling agentic RAG when the narrative matters | `met` / `not_met` / `indeterminate` |
+
 ### 4.2 `mcp_client.py`
 
 ```python
