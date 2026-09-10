@@ -58,6 +58,42 @@ def test_search_without_index_raises_clearly(tmp_path, monkeypatch):
         rag_index.search("anything", embedder=FakeEmbedder())
 
 
+class _Stub384Embedder:
+    """384-dim stub — matches bge-small's width, not FakeEmbedder's 64."""
+
+    def embed_documents(self, texts):
+        return [[1.0] + [0.0] * 383 for _ in texts]
+
+    def embed_query(self, text):
+        return [1.0] + [0.0] * 383
+
+
+def test_search_degrades_on_dimension_mismatch(tmp_path, monkeypatch):
+    """A `.pa_chroma/` built by a 64-dim embedder + a 384-dim query must surface
+    as `RagIndexUnavailable`, not a raw `InvalidDimensionException` (I3)."""
+    monkeypatch.setenv("PA_CHROMA_DIR", str(tmp_path / "chroma"))
+    from pa_copilot.config import get_settings
+
+    get_settings.cache_clear()
+    rag_index.build_index(embedder=FakeEmbedder(), rebuild=True)
+    with pytest.raises(rag_index.RagIndexUnavailable):
+        rag_index.search("anything at all", embedder=_Stub384Embedder())
+
+
+def test_search_degrades_when_index_model_changed(tmp_path, monkeypatch):
+    """Collection metadata records the build-time model; a config change to a
+    different embedding model must degrade, not silently mis-rank (I3)."""
+    monkeypatch.setenv("PA_CHROMA_DIR", str(tmp_path / "chroma"))
+    from pa_copilot.config import get_settings
+
+    get_settings.cache_clear()
+    rag_index.build_index(embedder=FakeEmbedder(), rebuild=True)
+    monkeypatch.setenv("PA_EMBEDDING_MODEL", "some/other-embedding-model")
+    get_settings.cache_clear()
+    with pytest.raises(rag_index.RagIndexUnavailable):
+        rag_index.search("anything at all", embedder=FakeEmbedder())
+
+
 def test_no_chroma_telemetry_noise(tmp_path, monkeypatch, caplog, capfd):
     """chromadb 0.6.3 emits "Failed to send telemetry event ... capture() takes 1
     positional argument but 3 were given" on every `PersistentClient` /

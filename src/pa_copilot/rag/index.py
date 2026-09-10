@@ -80,6 +80,15 @@ try:  # pragma: no cover - version shim
 except Exception:  # pragma: no cover
     pass
 
+# A collection built by a different embedder makes `collection.query` raise this
+# raw from chromadb; `search` maps it to `RagIndexUnavailable` so PR5 degrades
+# gracefully instead of seeing a hard exception.
+try:  # pragma: no cover - version shim
+    from chromadb.errors import InvalidDimensionException as _ChromaDimError
+except Exception:  # pragma: no cover
+    class _ChromaDimError(Exception):
+        """Fallback when chromadb does not expose InvalidDimensionException."""
+
 _log = logging.getLogger(__name__)
 
 
@@ -113,15 +122,19 @@ def corpus_sha(guidance_dir: str | Path) -> str:
 
 
 def get_client(chroma_dir: str | Path) -> chromadb.api.ClientAPI:
-    Path(chroma_dir).mkdir(parents=True, exist_ok=True)
+    # NB: no `mkdir` here — `build_index` owns creating the store. `search` must
+    # not resurrect a deleted / never-built index dir (M-d); it checks existence
+    # and raises `RagIndexUnavailable` before ever calling this.
     return chromadb.PersistentClient(
         path=str(chroma_dir),
         settings=ChromaSettings(anonymized_telemetry=False, is_persistent=True),
     )
 
 
-def get_collection(client: chromadb.api.ClientAPI, name: str):
-    return client.get_or_create_collection(name, metadata=_COSINE)
+def get_collection(
+    client: chromadb.api.ClientAPI, name: str, *, metadata: dict | None = None
+):
+    return client.get_or_create_collection(name, metadata=metadata or dict(_COSINE))
 
 
 def _resolve(settings: Settings | None, embedder: Embedder | None) -> tuple[Settings, Embedder]:
@@ -148,14 +161,27 @@ def build_index(
     settings, embedder = _resolve(settings, embedder)
     guidance_dir = _guidance_dir(settings)
     chunks = corpus.load_guidance(guidance_dir)
+    sha = corpus_sha(guidance_dir)
 
+    Path(settings.chroma_dir).mkdir(parents=True, exist_ok=True)
     client = get_client(settings.chroma_dir)
     if rebuild:
         try:
             client.delete_collection(settings.rag_collection)
         except _DELETE_MISSING_ERRORS as exc:
             _log.debug("delete_collection(%s) skipped: %s", settings.rag_collection, exc)
-    collection = get_collection(client, settings.rag_collection)
+    # Stamp the collection with the embedder + corpus it was built against so a
+    # later `search` on a stale / wrong-model `.pa_chroma/` degrades cleanly
+    # instead of returning garbage or raising a raw dimension error (I3).
+    collection = get_collection(
+        client,
+        settings.rag_collection,
+        metadata={
+            **_COSINE,
+            "embedding_model": settings.embedding_model,
+            "corpus_sha": sha,
+        },
+    )
 
     embeddings = embedder.embed_documents([c.text for c in chunks])
     collection.upsert(
@@ -169,7 +195,7 @@ def build_index(
         doc_count=len({c.policy_id for c in chunks}),
         chunk_count=len(chunks),
         embedding_model=settings.embedding_model,
-        corpus_sha=corpus_sha(guidance_dir),
+        corpus_sha=sha,
         collection=settings.rag_collection,
     )
 
@@ -200,10 +226,17 @@ def search(
     descending. `chunk_id` is rebuilt to match `corpus.Chunk.chunk_id`
     (``{policy_id}:{section-slug}:{clause_index}``) so callers need not re-slugify.
     Filters on `service_code` metadata when given. Raises `RagIndexUnavailable`
-    if the collection is missing or empty.
+    if the collection is missing, empty, or was built with a different embedder
+    or corpus than the one now configured.
     """
     settings, embedder = _resolve(settings, embedder)
     k = k or settings.rag_top_k
+
+    if not Path(settings.chroma_dir).exists():
+        raise RagIndexUnavailable(
+            f"Chroma store {settings.chroma_dir!r} does not exist — "
+            f"run scripts/ingest_rag.py to build it."
+        )
 
     client = get_client(settings.chroma_dir)
     try:
@@ -219,13 +252,36 @@ def search(
             f"run scripts/ingest_rag.py to build it."
         )
 
+    meta = collection.metadata or {}
+    built_model = meta.get("embedding_model")
+    if built_model and built_model != settings.embedding_model:
+        raise RagIndexUnavailable(
+            f"index built with model {built_model!r}; configured for "
+            f"{settings.embedding_model!r} — re-run scripts/ingest_rag.py"
+        )
+    built_sha = meta.get("corpus_sha")
+    if built_sha:
+        current_sha = corpus_sha(_guidance_dir(settings))
+        if built_sha != current_sha:
+            raise RagIndexUnavailable(
+                f"index built for corpus {built_sha[:12]}; current corpus is "
+                f"{current_sha[:12]} — re-run scripts/ingest_rag.py"
+            )
+
     where = {"service_code": service_code} if service_code else None
-    res = collection.query(
-        query_embeddings=[embedder.embed_query(query)],
-        n_results=k,
-        where=where,
-        include=["documents", "distances", "metadatas"],
-    )
+    try:
+        res = collection.query(
+            query_embeddings=[embedder.embed_query(query)],
+            n_results=k,
+            where=where,
+            include=["documents", "distances", "metadatas"],
+        )
+    except _ChromaDimError as exc:
+        raise RagIndexUnavailable(
+            f"query embedding dimension does not match collection "
+            f"{settings.rag_collection!r} — index built with a different embedder; "
+            f"re-run scripts/ingest_rag.py"
+        ) from exc
 
     metadatas = res["metadatas"][0]
     distances = res["distances"][0]
