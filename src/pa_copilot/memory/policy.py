@@ -129,7 +129,11 @@ def enforce_cap(
     pol = namespace_policy(namespace, mem)
     if pol is None or not pol.cap:
         return []
-    items = list(store.search(namespace, limit=10_000))
+    # This listing is internal housekeeping, not a real read of any one item —
+    # it must not refresh TTL on every other item in the namespace (that would
+    # turn "N days since an item was last written/touched" into "N days since
+    # anything in the namespace was written", defeating per-item TTL policy).
+    items = list(store.search(namespace, limit=10_000, refresh_ttl=False))
     overflow = len(items) - pol.cap
     if overflow <= 0:
         return []

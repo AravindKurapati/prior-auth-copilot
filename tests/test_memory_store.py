@@ -1,8 +1,13 @@
 """PolicyStore write interception (AC-08), LRU cap, and the sqlite-vec fallback."""
 
+import sqlite3
+import time
+
+import pytest
+
 from pa_copilot.config import get_settings
 from pa_copilot.memory import policy
-from pa_copilot.memory.store import memory_store
+from pa_copilot.memory.store import PolicyStore, memory_store, open_memory_store
 
 NS_MEMBER = ("pa", "member", "M100001")
 NS_NOTES = ("pa", "policy_notes")
@@ -67,3 +72,67 @@ def test_search_ranked_orders_by_importance_then_recency(memory_store):
     memory_store.put(NS_MEMBER, "crit1", {"content": "routine lumbar note", "importance": "critical"})
     ranked = policy.search_ranked(memory_store, NS_MEMBER, "lumbar note", limit=2)
     assert ranked[0].key == "crit1"
+
+
+def test_enforce_cap_scan_does_not_refresh_other_items_ttl(memory_store):
+    """Finding I1 (Ruling R35) regression: enforce_cap's own internal
+    full-namespace listing (used only to check the cap) must not count as a
+    "read" of every other item in the namespace -- only a real query-serving
+    search (search_ranked) is allowed to refresh TTL. Writing item B to the
+    same TTL-bearing namespace must not push out item A's expires_at."""
+    memory_store.put(NS_MEMBER, "a", {"content": "first item in the namespace"})
+    row_before = memory_store.conn.execute(
+        "SELECT expires_at FROM store WHERE key = ?", ("a",)
+    ).fetchone()
+    assert row_before[0] is not None
+
+    # Cross a wall-clock second boundary so that, if the bug were still present,
+    # the refreshed expires_at (CURRENT_TIMESTAMP + ttl_minutes, second
+    # resolution) would provably differ from the pre-write value -- a same-
+    # second write/write pair could coincidentally look unchanged either way.
+    time.sleep(1.1)
+
+    # A second, unrelated write into the SAME namespace triggers PolicyStore's
+    # post-put enforce_cap housekeeping scan. Before the fix this scan's
+    # store.search(...) refreshed TTL on every item in the namespace,
+    # including "a", even though "a" was never itself read or written again.
+    memory_store.put(NS_MEMBER, "b", {"content": "second item in the namespace"})
+
+    row_after = memory_store.conn.execute(
+        "SELECT expires_at FROM store WHERE key = ?", ("a",)
+    ).fetchone()
+    assert row_after[0] == row_before[0]
+
+
+def test_open_memory_store_closes_both_conns_when_both_setup_attempts_fail(
+    tmp_path, fake_embedder, monkeypatch
+):
+    """Finding I2 (Ruling R36) regression: if the primary setup() fails AND the
+    non-semantic fallback's setup() also fails, both sqlite3 connections must
+    be closed before the exception propagates -- neither may be leaked."""
+    import pa_copilot.memory.store as store_mod
+
+    created: list[PolicyStore] = []
+    original_build = store_mod._build
+
+    def spying_build(path, index, settings):
+        built = original_build(path, index, settings)
+        created.append(built)
+        return built
+
+    monkeypatch.setattr(store_mod, "_build", spying_build)
+    monkeypatch.setattr(
+        PolicyStore,
+        "setup",
+        lambda self: (_ for _ in ()).throw(RuntimeError("setup boom")),
+    )
+
+    with pytest.raises(RuntimeError, match="setup boom"):
+        open_memory_store(tmp_path / "double_fail.db", embedder=fake_embedder)
+
+    # Both the primary attempt (semantic index configured) and the fallback
+    # attempt (index=None) must have run and been closed.
+    assert len(created) == 2
+    for built in created:
+        with pytest.raises(sqlite3.ProgrammingError):
+            built.conn.execute("SELECT 1")

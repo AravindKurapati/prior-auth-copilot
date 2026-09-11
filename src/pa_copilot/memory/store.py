@@ -81,12 +81,16 @@ def open_memory_store(
     try:
         store.setup()
     except Exception as exc:  # noqa: BLE001 -- sqlite-vec extension load failure
+        store.conn.close()
         if index is None:
             raise
-        store.conn.close()
         store = _build(db_path, None, s)
         store.semantic_error = repr(exc)
-        store.setup()
+        try:
+            store.setup()
+        except Exception:
+            store.conn.close()
+            raise
     return store
 
 
