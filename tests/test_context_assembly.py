@@ -33,6 +33,11 @@ def test_select_for_decision_draft_never_includes_raw_text():
     assert set(got) == {"request", "benefit", "necessity"}
 
 
+def test_select_for_medical_necessity_defaults_retrieved_criteria():
+    got = select_for("medical_necessity", _state(retrieved_criteria=None))
+    assert got["retrieved_criteria"] == []
+
+
 def test_select_for_unknown_node_raises():
     with pytest.raises(ValueError, match="no field selection"):
         select_for("nonexistent_node", _state())

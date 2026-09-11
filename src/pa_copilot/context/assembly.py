@@ -22,7 +22,10 @@ def select_for(node: str, state: PACaseState) -> dict[str, Any]:
     fields = _SELECTORS.get(node)
     if fields is None:
         raise ValueError(f"no field selection defined for node {node!r}")
-    return {f: state.get(f) for f in fields}
+    result = {f: state.get(f) for f in fields}
+    if node == "medical_necessity":
+        result["retrieved_criteria"] = result.get("retrieved_criteria") or []
+    return result
 
 
 def write_working_memory(state: PACaseState, key: str, value: Any) -> dict[str, Any]:
