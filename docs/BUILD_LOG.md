@@ -93,34 +93,83 @@ try/except to `(RagIndexUnavailable, CorporaUnavailable)` → `[]`.
 
 ---
 
-## NEXT: PR4 — Memory Subsystem  (branch `feat/memory`, off `main` @ `2d8762a`)
+## PR4 — Memory Subsystem  (merged `<pending merge>`)
 
-**Scope (design.md §6; AC-06, AC-07, AC-08):**
-- Tiered memory: short-term working (`state["working_memory"]` + `messages`, will be
-  persisted by `SqliteSaver` — wired in PR5) + long-term semantic (`SqliteStore` +
-  `sqlite-vec`, local bge-small embeddings). Namespaces `("pa","member",<id>)`,
-  `("pa","provider",<npi>)`, `("pa","policy_notes")`, `("pa","episodic")`.
-- LangMem `create_manage_memory_tool` / `create_search_memory_tool` over the store.
-- `memory/policy.py` — eviction/importance: native `SqliteStore(ttl=TTLConfig(...))` +
-  importance weighting (`routine`/`notable`/`critical`, denials/appeals = critical) +
-  per-namespace LRU cap. `search_ranked()` = `semantic × importance × recency`.
-- **AC-07 deterministic cross-session test** (`tests/test_memory_persistence.py` +
-  `scripts/run_persistence_test.py` — two real `python` processes, same on-disk store) →
-  committed `traces/memory_persistence.log`.
-- `docs/memory-policy.md`.
+Tiered memory (design.md §6; AC-06, AC-07, AC-08): Tier-1 `memory/working.py`
+(`remember`/`recall`/`search_working` — pure dict transforms over
+`state["working_memory"]["facts"]`, checkpointer-persisted starting PR5) + Tier-2
+`PolicyStore` (`memory/store.py`, a `SqliteStore` subclass) over `.pa_memory.db`, with an
+optional `sqlite-vec` semantic index (local bge-small via `memory/embeddings.py`'s
+`LocalEmbeddings`/`as_embeddings` wrapping `rag.embedder.BgeEmbedder`). Namespaces
+`("pa","member",<id>)`, `("pa","provider",<npi>)`, `("pa","policy_notes")`,
+`("pa","episodic")`. `memory/tools.py::build_memory_tools` wraps langmem's
+`create_manage_memory_tool`/`create_search_memory_tool` with an explicit `store=`.
+`memory/policy.py` (pure functions plus store-coupled `search_ranked`/`enforce_cap`/
+`sweep_expired`) implements per-namespace TTL, `{routine,notable,critical}` importance
+weighting, recency half-life decay, and a soft-against-`critical` LRU cap. AC-07 has both an
+in-process teardown+rebuild test (`tests/test_memory_persistence.py`) and a genuine
+2-process test (`scripts/run_persistence_test.py` → `traces/memory_persistence.log`).
+Full policy writeup: `docs/memory-policy.md`.
 
-**PR4 watch-outs:**
-- `Settings.memory` is already a frozen `MemoryConfig` (PR1) — use it; add an autouse
-  `os.environ` snapshot/restore fixture to `tests/conftest.py` (PR2 parked this — a
-  `GOOGLE_API_KEY` raw-`os.environ` write in `test_env_overrides_and_key_read` currently
-  leaks; PR4's env-heavy tests need the snapshot fixture).
-- `SqliteStore` semantic index needs an embedder — reuse `rag.embedder.BgeEmbedder` (or a
-  LangChain `Embeddings` wrapper around it). Fast tests inject a fake (`tests/_fakes.py`).
-- `sqlite-vec` may fail to load on some machines — `memory/store.py` should fall back to a
-  no-index `SqliteStore` (keyword search only) and still pass AC-06/07/08.
-- Real bge-small `@slow`; deterministic tests use the fake.
-- Keep `.pa_memory.db*` gitignored (already is).
+Key: `TTLConfig` only supports one global `default_ttl`, so `PolicyStore.put`/`aput`
+compute and inject a **per-item** TTL (`policy.ttl_minutes_for`) and a default importance on
+every write before enforcing the namespace's cap — this is how a single native store
+achieves the per-namespace policy design.md §6.3 calls for. `open_memory_store()` degrades
+to `index=None` (no sqlite-vec) on extension-load failure, recording `store.semantic_error`
+rather than raising, so AC-06/07/08 hold on a machine without `sqlite-vec` available.
+Two real bugs were caught and fixed in review, not part of the original design: (1)
+`enforce_cap`'s internal namespace-listing scan must pass `refresh_ttl=False` — otherwise
+every write's cap-check silently refreshed the TTL of every *other* item in the namespace,
+defeating per-item expiry; (2) `open_memory_store` must close the sqlite3 connection on
+*both* failure edges before propagating/retrying, or it leaks the handle (observed as a
+locked-file failure on Windows). AC-06/07/08 evidence: `tests/test_ac06_tiered_memory.py` +
+`traces/tiered_memory_recall.json`; `tests/test_memory_persistence.py` +
+`scripts/run_persistence_test.py` + `traces/memory_persistence.log`;
+`tests/test_ac08_eviction.py` (its recency-eviction case backdates one item's
+`created_at`/`updated_at` via raw SQL, because SQLite's `CURRENT_TIMESTAMP` only has
+1-second granularity and back-to-back test writes otherwise tie on recency — see
+`docs/memory-policy.md` §8). 124 tests pass, pristine; `ruff check src tests` clean.
+
+**Known limitation, not fixed here (PR5 watch-out):** LangMem's memory tools only work
+through synchronous `.invoke()` against `PolicyStore` — `.ainvoke()` raises
+`NotImplementedError` because `SqliteStore.abatch` (the langgraph library's own override)
+unconditionally raises for async batching. `PolicyStore.aput` is written and compiles, but
+nothing here proves it end-to-end through an async caller, since LangMem's async tool path
+never reaches `aput`. See §10 of `docs/memory-policy.md`.
+
+---
+
+## NEXT: PR5 — The Graph  (branch `feat/graph-core`, off `main` @ `<pending merge>`)
+
+**Scope (design.md §3; AC-02, AC-03, AC-05; NFR-03, NFR-08):**
+- `supervisor.py` — deterministic guardrails + LLM router (`RouterDecision`) over
+  `state["next"]`.
+- `agents/` — `intake`, `benefit_check`, `medical_necessity`, `decision_draft`,
+  `human_review`, each a small internal ReAct loop emitting one validated Pydantic object.
+- `graph.py` — the hand-rolled `StateGraph` topology (`summarize` → `supervisor` →
+  conditional → workers → `summarize` → `supervisor` ... → `FINISH`/`human_review`
+  `interrupt()`), async `make_graph()`.
+- `context/` — `quarantine.py` (NFR-03: untrusted `raw_provider_text` isolation),
+  `summarization.py` (`SummarizationNode`, NFR-08), `assembly.py` (write/select helpers).
+- Checkpointer wiring (AC-05): `graph.compile(checkpointer=SqliteSaver..., store=PolicyStore...)`;
+  `pac submit` / `pac resume` as two separate process invocations,
+  `traces/pause_resume_transcript.md`.
+
+**Parked items carried forward:**
+- (from PR3) `tool._service_name` → `data_access.list_policies()` → `load_corpora()` can
+  raise `CorporaUnavailable`, which the RAG tool's own `except RagIndexUnavailable` does not
+  catch. `medical_necessity`'s tool-call try/except should widen to
+  `(RagIndexUnavailable, CorporaUnavailable)` → `[]`.
+- (from PR2, **now done**) the autouse `os.environ` snapshot/restore fixture — landed in PR4
+  as `tests/conftest.py::_env_snapshot`. No longer a forward watch-out.
+- **New — async LangMem tools vs. async workers (open design question).** `PolicyStore`
+  only supports LangMem's memory tools through sync `.invoke()`
+  (`SqliteStore.abatch` unconditionally raises `NotImplementedError`, so `.ainvoke()` can't
+  reach `PolicyStore.aput`). PR5's workers are async ReAct loops. Before wiring
+  `build_memory_tools()` output into any worker, decide: call the memory tools
+  synchronously from inside the async worker, wrap them in a sync-to-async adapter, or give
+  `PolicyStore` a real `abatch` override. Not solved in PR4 — see `docs/memory-policy.md` §10.
 
 **Resume:** `cd D:/Aru/NYU/Virtusa/prior-auth-copilot`, confirm `git log --first-parent`
-shows `Merge PR3`, then write `docs/implementation-plan-pr4.md` and run the SDD cycle.
-Prior rulings R1–R29 are in `.superpowers/sdd/implementation-plan-pr{1,2,3}/progress.md`.
+shows `Merge PR4`, then write `docs/implementation-plan-pr5.md` and run the SDD cycle.
+Prior rulings are in `.superpowers/sdd/implementation-plan-pr{1,2,3,4}/progress.md`.

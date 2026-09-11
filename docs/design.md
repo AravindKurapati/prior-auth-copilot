@@ -42,7 +42,7 @@ All pip-installable, no Docker, no external database service. Python 3.11+.
 |---|---|---|
 | Graph | `langgraph` — hand-rolled `StateGraph` | not the `langgraph-supervisor` prebuilt; explicit topology is the graded evidence |
 | Checkpointer (AC-05) | `SqliteSaver` (`langgraph-checkpoint-sqlite`) | file `./.pa_state.db`; thread-scoped short-term memory |
-| Long-term memory (AC-06/07/08) | `SqliteStore` (same package) | file `./.pa_memory.db`; native TTL (`TTLConfig`), optional `sqlite-vec` semantic index |
+| Long-term memory (AC-06/07/08) | `SqliteStore` (same package) | file `./.pa_memory.db`; native TTL (`TTLConfig`), optional `sqlite-vec` semantic index; `PolicyStore` subclass injects per-namespace TTL + importance on every write |
 | Agent-managed memory | `langmem` `create_manage_memory_tool` / `create_search_memory_tool` | over the `SqliteStore` |
 | Compression (NFR-08) | `langmem.short_term.SummarizationNode` | running summary in `state["context"]` |
 | LLM | Google Gemini via `langchain-google-genai` | pins in `config/models.yaml`: `gemini-flash-latest` (agents + supervisor), `gemini-flash-lite-latest` (summarizer). Aliases move — re-run traces after any move. |
@@ -347,6 +347,9 @@ extraction.
 
 - **TTL** — native `SqliteStore(ttl=TTLConfig(...))`: `episodic` 90d, `member`/`provider`
   365d, `policy_notes` none; `refresh_on_read=True`. `sweep_ttl()` on startup.
+  `TTLConfig` carries only a single global `default_ttl`, so per-namespace expiry
+  (`episodic` 90d, `member`/`provider` 365d, `policy_notes` none) is applied by
+  `PolicyStore.put` passing a per-item `ttl` computed by `policy.ttl_minutes_for`.
 - **Importance weighting** — each item carries `value["importance"] in {routine, notable,
   critical}` (denials / appeals = critical); `search_ranked()` orders by
   `semantic_score * importance_weight * recency_decay`.
