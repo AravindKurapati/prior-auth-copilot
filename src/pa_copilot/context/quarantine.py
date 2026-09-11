@@ -21,14 +21,17 @@ def make_quarantine_ref(case_id: str) -> str:
 
 
 def build_quarantined_message(raw_text: str) -> HumanMessage:
+    # HTML-escape < and > in raw_text to prevent delimiter forgery
+    escaped_text = raw_text.replace("<", "&lt;").replace(">", "&gt;")
     return HumanMessage(
-        content=f"{QUARANTINE_PREAMBLE}\n\n{_OPEN_TAG}\n{raw_text}\n{_CLOSE_TAG}"
+        content=f"{QUARANTINE_PREAMBLE}\n\n{_OPEN_TAG}\n{escaped_text}\n{_CLOSE_TAG}"
     )
 
 
 def is_quarantined_message(message: BaseMessage) -> bool:
     return (
         isinstance(message, HumanMessage)
+        and QUARANTINE_PREAMBLE in message.content
         and _OPEN_TAG in message.content
         and _CLOSE_TAG in message.content
     )
