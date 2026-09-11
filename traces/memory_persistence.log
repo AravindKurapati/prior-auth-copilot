@@ -1,0 +1,5 @@
+# AC-07 cross-session memory persistence -- two python processes
+[session-A pid=<pid>] wrote ['pa', 'member', 'M100001']/det-cross-session: {"content": "Determination: lumbar MRI 72148 APPROVED; cited PA-MRI-LUMBAR step-therapy.", "disposition": "approve", "importance": "critical"}
+[session-B pid=<pid>] recalled ['pa', 'member', 'M100001']/det-cross-session: {"content": "Determination: lumbar MRI 72148 APPROVED; cited PA-MRI-LUMBAR step-therapy.", "disposition": "approve", "importance": "critical"}
+[session-B pid=<pid>] exact-match=True
+RESULT: PASS

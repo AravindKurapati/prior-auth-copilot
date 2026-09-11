@@ -25,7 +25,8 @@ demo:
 	pac demo
 
 persistence-test:
-	pac persistence-test
+	# pac persistence-test once PR7 wires the CLI
+	python scripts/run_persistence_test.py
 
 samples:
 	python scripts/make_samples.py
