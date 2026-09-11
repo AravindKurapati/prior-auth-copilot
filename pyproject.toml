@@ -50,6 +50,19 @@ filterwarnings = [
     # module scoped — a non-chromadb deprecation anywhere else still fails.
     "ignore::pydantic.warnings.PydanticDeprecatedSince211",
     "ignore::DeprecationWarning:chromadb",
+    # langgraph.store.sqlite (base.py) stores created_at/updated_at/expires_at as
+    # `datetime` objects and lets sqlite3 adapt them, which Python 3.12 flags via
+    # the deprecated default datetime adapter. It is library-internal (our code
+    # never registers an adapter); category + exact-module scoped so a datetime
+    # adapter deprecation from anywhere else still fails the suite.
+    "ignore::DeprecationWarning:langgraph.store.sqlite.base",
+    # trustcall 0.0.39 (a langmem 0.0.30 dependency, imported at `import langmem`
+    # time by pa_copilot.memory.tools) does `from langgraph.constants import Send`,
+    # which langgraph 1.0.1 flags as moved to `langgraph.types`. Library-internal
+    # (our own code never imports Send from langgraph.constants); category +
+    # module scoped to the third-party import site so an unrelated deprecation
+    # still fails the suite.
+    "ignore::langgraph.warnings.LangGraphDeprecatedSinceV10:trustcall",
 ]
 markers = ["slow: needs a model download or a live Gemini API key"]
 

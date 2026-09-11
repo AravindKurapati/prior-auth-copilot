@@ -1,8 +1,25 @@
+import os
 from pathlib import Path
 
 import pytest
 
 from pa_copilot.config import get_settings
+
+
+@pytest.fixture(autouse=True)
+def _env_snapshot():
+    """Snapshot os.environ and restore it exactly after each test. monkeypatch
+    reverts its own setenv/delenv, but not a raw `os.environ[...] = ...` write
+    (config.load_settings mirrors GEMINI_API_KEY -> GOOGLE_API_KEY that way)."""
+    saved = dict(os.environ)
+    try:
+        yield
+    finally:
+        for key in [k for k in os.environ if k not in saved]:
+            del os.environ[key]
+        for key, value in saved.items():
+            if os.environ.get(key) != value:
+                os.environ[key] = value
 
 
 @pytest.fixture(autouse=True)
@@ -24,6 +41,19 @@ def tmp_trace_dir(tmp_path: Path) -> Path:
 @pytest.fixture
 def frozen_now() -> str:
     return "2026-09-09T12:00:00+00:00"
+
+
+@pytest.fixture
+def fake_embedder():
+    from _fakes import FakeEmbedder  # noqa: PLC0415
+    return FakeEmbedder()
+
+
+@pytest.fixture
+def memory_store(tmp_path, fake_embedder):
+    from pa_copilot.memory.store import memory_store as _open  # noqa: PLC0415
+    with _open(tmp_path / "memory.db", embedder=fake_embedder) as store:
+        yield store
 
 
 @pytest.fixture
