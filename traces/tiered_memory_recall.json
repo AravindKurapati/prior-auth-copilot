@@ -1,0 +1,36 @@
+{
+  "ac": "AC-06",
+  "embedder": "FakeEmbedder",
+  "scenario": "MRI lumbar re-request for member M100001; prior determination recalled",
+  "semantic_index": true,
+  "tier_1_working_memory": {
+    "turn_3_recall": {
+      "key": "conservative_care_weeks",
+      "recalled": 8
+    },
+    "writes": [
+      {
+        "key": "conservative_care_weeks",
+        "turn": 1,
+        "value": 8
+      },
+      {
+        "key": "chief_complaint",
+        "turn": 2,
+        "value": "radicular pain"
+      }
+    ]
+  },
+  "tier_2_long_term": {
+    "namespace": [
+      "pa",
+      "member",
+      "M100001"
+    ],
+    "query": "history of lumbar MRI prior authorization",
+    "top_hit_content": "Prior auth for lumbar MRI 72148 approved 2025-11; 8 weeks PT documented.",
+    "top_hit_importance": "notable",
+    "top_hit_key": "det-2025-11",
+    "written_key": "det-2025-11"
+  }
+}

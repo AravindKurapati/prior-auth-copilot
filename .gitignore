@@ -20,6 +20,7 @@ venv/
 .pa_state.db-*
 .pa_memory.db
 .pa_memory.db-*
+.pa_memory_demo.db*
 .pa_chroma*/
 *.sqlite3
 
