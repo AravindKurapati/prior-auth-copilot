@@ -345,9 +345,8 @@ extraction.
 
 ### 6.3 Eviction / importance policy (AC-08) — `memory/policy.py`
 
-- **TTL** — native `SqliteStore(ttl=TTLConfig(...))`: `episodic` 90d, `member`/`provider`
-  365d, `policy_notes` none; `refresh_on_read=True`. `sweep_ttl()` on startup.
-  `TTLConfig` carries only a single global `default_ttl`, so per-namespace expiry
+- **TTL** — native `SqliteStore(ttl=TTLConfig(...))`, `refresh_on_read=True`; `sweep_ttl()` on
+  startup. `TTLConfig` carries only a single global `default_ttl`, so per-namespace expiry
   (`episodic` 90d, `member`/`provider` 365d, `policy_notes` none) is applied by
   `PolicyStore.put` passing a per-item `ttl` computed by `policy.ttl_minutes_for`.
 - **Importance weighting** — each item carries `value["importance"] in {routine, notable,

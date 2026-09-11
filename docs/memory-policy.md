@@ -21,6 +21,14 @@ Tier-2 namespaces (`config/memory.yaml`): `("pa","member",<id>)`, `("pa","provid
 langmem default of resolving the store from graph config is not used here, so tests and CLI
 scripts can pass an arbitrary `PolicyStore` instance directly).
 
+**Important:** `create_manage_memory_tool`'s `manage_memory` tool hardcodes
+`value={"content": ...}` at the top level of what it passes to `store.put` — the `schema=`
+parameter only shapes what goes *inside* `content`, it cannot add a top-level sibling key.
+Since `PolicyStore`/`policy.importance_of` reads `value.get("importance")` at the top level,
+every write made through the `manage_memory` tool is permanently stamped `importance:
+"routine"` by construction — an agent holding only that tool has no way to write a `critical`
+record. See §3.
+
 ---
 
 ## 2. TTL
@@ -61,13 +69,27 @@ Weights (`config/memory.yaml: importance_weights`): `{routine: 1.0, notable: 1.5
 3.0}`. Denials and appeals are written with `importance: "critical"` by the caller (e.g.
 `decision_draft` in PR5) — `policy.importance_weight()` looks the label up in this table.
 
+**This path is only reachable via a direct first-party `store.put(...)`/`store.aput(...)`
+call — never via the agent-held `manage_memory` tool.** As noted in §1, LangMem's
+`create_manage_memory_tool` hardcodes `value={"content": ...}` with no top-level `importance`
+key, so any write made through that tool is always `routine`, regardless of `schema=` or
+instructions given to the agent. The `critical`/eviction-survival behavior AC-08 proves (e.g.
+`tests/test_memory_store.py::test_explicit_importance_is_kept`,
+`tests/test_ac08_eviction.py`) is exercised only through PR4's own direct `store.put(...)`
+calls. A worker that needs to persist a `critical` record (e.g. PR5's `decision_draft`
+recording a denial/appeal) must call `PolicyStore.put(...)` directly with
+`value={"importance": "critical", ...}`, or PR5 must add its own first-party wrapper tool
+that exposes an `importance` parameter — relying on the generic `manage_memory` tool for that
+path will silently downgrade the record to `routine`.
+
 ## 4. Ranked search
 
 `policy.search_ranked(store, namespace, query, *, limit=None, mem=None, now=None, pool=50)`
 pulls a generous pool from `store.search(...)` (semantic when the sqlite-vec index is up,
-recency/keyword-only otherwise — `use_query` is dropped to `None` when
+recency/importance-only otherwise — `use_query` is dropped to `None` when
 `store.semantic_index_available` is `False`, so a dead index degrades gracefully instead of
-erroring), then re-sorts that pool in Python by `policy.rank_key`:
+erroring; there is no keyword matching in this fallback mode), then re-sorts that pool in
+Python by `policy.rank_key`:
 
 ```
 rank_key = semantic_score * importance_weight(value) * recency_decay(updated_at, half_life_days)
@@ -120,6 +142,11 @@ mode — semantic *recall quality* degrades (no embedding similarity), but TTL, 
 cap eviction, and cross-session persistence are unaffected, since none of those depend on
 the vector index.
 
+Even when the index is up, the indexed/semantic-search branch only finds values that
+populate at least one of the configured `semantic_fields` (default `content`/`text`) — a
+value dict lacking both is invisible to a semantic query, though it remains reachable via
+`get()`/`list_namespaces()`.
+
 **Also fixed during review:** `open_memory_store` closes the raw sqlite3 connection on
 *both* failure edges (index-setup failure and no-index-rebuild failure) before propagating
 or retrying — the original code leaked the connection object on Windows, where an unclosed
@@ -130,11 +157,12 @@ sqlite3 handle can leave the file locked for a subsequent open in the same test 
 "Session" = a fresh set of in-memory objects (store, and later graph/checkpointer) pointing
 at the same on-disk SQLite file. Two forms of evidence:
 
-- **In-process** — `tests/test_memory_persistence.py`: Session A writes a record into
-  `("pa","member",<id>)`, all in-memory objects are torn down, Session B opens a **new**
-  `PolicyStore` via `open_memory_store()` against the same path and asserts (exact key/value
-  match, no LLM judgment) the record is still there and its TTL/importance stamping
-  survived the round trip.
+- **In-process** — `tests/test_memory_persistence.py`:
+  `test_in_process_teardown_then_fresh_store_recalls` has Session A write a record into
+  `("pa","member",<id>)`, tears down all in-memory objects, then has Session B open a **new**
+  `PolicyStore` via `open_memory_store()` against the same path and asserts (exact match, no
+  LLM judgment) that the record's `disposition` and `content` fields survived the round trip.
+  It does not itself assert on TTL or importance stamping.
 - **Cross-process** — `scripts/run_persistence_test.py` spawns two real, separate `python`
   subprocesses against the same `.pa_memory.db` file: the first writes, the second reads and
   asserts. Combined, masked-timestamp/pid stdout is committed as `traces/memory_persistence.log`
@@ -173,14 +201,26 @@ natural next step for the memory subsystem.
 ## 10. Known limitation carried into PR5 (not fixed here)
 
 LangMem's memory tools (`build_memory_tools`) only work through **synchronous** `.invoke()`
-against `PolicyStore`. Calling `.ainvoke()` raises `NotImplementedError`, because
-`SqliteStore.abatch` — the langgraph library's own override, not first-party code in this
-repo — unconditionally raises for async batching. `PolicyStore.aput` is written and does
-compile, but nothing in PR4 proves it works end-to-end through an async caller, because
-LangMem's async tool path can never reach it (LangMem batches through `store.abatch`, not
-`store.aput`, when invoked async).
+against `PolicyStore`. Calling `.ainvoke()` raises `NotImplementedError` — but not for the
+reason this doc used to claim. Verified directly against the installed `langmem`/`langgraph`
+source: LangMem's async manage-memory path **does** call `await store.aput(...)` directly —
+it reaches `PolicyStore.aput` just fine. The failure is one level deeper.
+`BaseStore.aput`'s own implementation unconditionally does `await self.abatch([PutOp(...)])`,
+and `SqliteStore.abatch` — langgraph's own override, not first-party code in this repo —
+unconditionally raises `NotImplementedError` for **any** async batch operation, regardless of
+who calls it.
+
+The corrected, stronger conclusion: `PolicyStore.aput` cannot succeed from **any** async
+caller — not just LangMem's tool, but also a direct first-party `await store.aput(...)`
+anywhere in future code (e.g. PR5's own worker code, if it ever awaits a store write
+directly). This is not "LangMem specifically can't use async"; it's "this store has no
+working async write path at all, period, until something gives `PolicyStore` (or the
+underlying `SqliteStore`) a real `abatch` override." This is a firm, verified fact, not an
+unproven suspicion: `PolicyStore.aput` **will** raise `NotImplementedError`, always.
 
 PR5's workers are async ReAct loops. If any worker calls these memory tools via `ainvoke`,
-it will hit `NotImplementedError`. This is an open design question for PR5 — call the tools
-synchronously from within the async worker, wrap them, or give `PolicyStore` a real
-`abatch` override — not a solved problem in this PR.
+or directly awaits `store.aput(...)`, it will hit `NotImplementedError`. Candidate
+resolutions for PR5 — call the tools synchronously from within the async worker, wrap them
+in a sync-to-async adapter, or (the one to keep front and center) **give `PolicyStore` a
+real `abatch` override** so `aput` actually has a working path. Not a solved problem in this
+PR.

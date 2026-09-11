@@ -136,3 +136,54 @@ def test_open_memory_store_closes_both_conns_when_both_setup_attempts_fail(
     for built in created:
         with pytest.raises(sqlite3.ProgrammingError):
             built.conn.execute("SELECT 1")
+
+
+def test_enforce_cap_and_search_ranked_reject_prefix_leak_across_namespaces(
+    tmp_path, fake_embedder, monkeypatch
+):
+    """Final whole-branch review, Finding I1: SqliteStore.search matches
+    namespaces by a raw SQL prefix with no trailing separator, so the
+    dot-joined string for ("pa","member","M1") is a literal string-prefix of
+    ("pa","member","M10")'s. `enforce_cap` and `search_ranked` must filter
+    the raw search results to an EXACT namespace match before doing anything
+    else with them, or M1's cap accounting / ranked search silently absorbs
+    M10's records -- a data-isolation bug, not a ranking wobble."""
+    s = get_settings()
+    monkeypatch.setitem(
+        s.memory.namespaces, "member",
+        type(s.memory.namespaces["member"])(ttl_days=365, cap=2),
+    )
+    ns_m1 = ("pa", "member", "M1")
+    ns_m10 = ("pa", "member", "M10")
+    with memory_store(tmp_path / "prefix.db", embedder=fake_embedder) as store:
+        # M10 sits at its own cap -- two real items, self-contained.
+        store.put(ns_m10, "x", {"content": "m10 item x"})
+        store.put(ns_m10, "y", {"content": "m10 item y"})
+
+        # One M1 write is well under M1's own cap (1 < 2). Because M1's
+        # dot-joined namespace ("pa.member.M1") is a literal string-prefix of
+        # M10's ("pa.member.M10"), a buggy enforce_cap would see M10's two
+        # items too and compute a phantom overflow that should never exist.
+        store.put(ns_m1, "a", {"content": "m1 item a"})
+
+        # (a) M10's items must never be evicted or counted against M1's cap.
+        evicted = policy.enforce_cap(store, ns_m1, mem=s.memory)
+        assert evicted == []
+        assert store.get(ns_m1, "a") is not None
+        assert store.get(ns_m10, "x") is not None
+        assert store.get(ns_m10, "y") is not None
+
+        # ...and vice versa: M1's item must never be evicted or counted
+        # against M10's cap.
+        evicted_m10 = policy.enforce_cap(store, ns_m10, mem=s.memory)
+        assert evicted_m10 == []
+
+        # (b) search_ranked on M1 must return ONLY M1's own record, never
+        # anything from M10 (and vice versa).
+        ranked_m1 = policy.search_ranked(store, ns_m1, None, limit=50)
+        assert {i.key for i in ranked_m1} == {"a"}
+        assert all(tuple(i.namespace) == ns_m1 for i in ranked_m1)
+
+        ranked_m10 = policy.search_ranked(store, ns_m10, None, limit=50)
+        assert {i.key for i in ranked_m10} == {"x", "y"}
+        assert all(tuple(i.namespace) == ns_m10 for i in ranked_m10)

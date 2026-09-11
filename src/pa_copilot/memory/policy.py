@@ -111,6 +111,11 @@ def search_ranked(
     when = _now(now)
     use_query = query if getattr(store, "semantic_index_available", True) else None
     raw = list(store.search(namespace, query=use_query, limit=max(pool, limit or 0)))
+    # `store.search` matches namespaces by SQL prefix (no trailing separator), so
+    # e.g. ("pa","member","M1") also matches ("pa","member","M10"). Namespaces in
+    # this project are always exact leaf-level keys, never an intentional subtree
+    # query, so filter to an exact match before ranking/slicing.
+    raw = [it for it in raw if tuple(it.namespace) == tuple(namespace)]
     raw.sort(key=lambda it: rank_key(it, mem, now=when), reverse=True)
     return raw[:limit] if limit else raw
 
@@ -134,6 +139,11 @@ def enforce_cap(
     # turn "N days since an item was last written/touched" into "N days since
     # anything in the namespace was written", defeating per-item TTL policy).
     items = list(store.search(namespace, limit=10_000, refresh_ttl=False))
+    # `store.search` matches namespaces by SQL prefix (no trailing separator), so
+    # e.g. ("pa","member","M1") also matches ("pa","member","M10"). Namespaces in
+    # this project are always exact leaf-level keys, never an intentional subtree
+    # query, so filter to an exact match before doing anything else with the list.
+    items = [it for it in items if tuple(it.namespace) == tuple(namespace)]
     overflow = len(items) - pol.cap
     if overflow <= 0:
         return []

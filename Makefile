@@ -24,8 +24,8 @@ chunks:
 demo:
 	pac demo
 
+# pac persistence-test once PR7 wires the CLI
 persistence-test:
-	# pac persistence-test once PR7 wires the CLI
 	python scripts/run_persistence_test.py
 
 samples:

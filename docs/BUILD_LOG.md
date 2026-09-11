@@ -132,10 +132,14 @@ locked-file failure on Windows). AC-06/07/08 evidence: `tests/test_ac06_tiered_m
 
 **Known limitation, not fixed here (PR5 watch-out):** LangMem's memory tools only work
 through synchronous `.invoke()` against `PolicyStore` — `.ainvoke()` raises
-`NotImplementedError` because `SqliteStore.abatch` (the langgraph library's own override)
-unconditionally raises for async batching. `PolicyStore.aput` is written and compiles, but
-nothing here proves it end-to-end through an async caller, since LangMem's async tool path
-never reaches `aput`. See §10 of `docs/memory-policy.md`.
+`NotImplementedError`. Verified against the installed `langmem`/`langgraph` source: LangMem's
+async tool path does call `await store.aput(...)` directly and reaches `PolicyStore.aput`
+fine; the failure is one level deeper — `BaseStore.aput` unconditionally calls
+`await self.abatch(...)`, and `SqliteStore.abatch` (the langgraph library's own override)
+unconditionally raises for **any** async batch operation. So `PolicyStore.aput` cannot
+succeed from any async caller at all — not just LangMem's tool, but a direct first-party
+`await store.aput(...)` too. This is a firm, verified fact (it will raise), not an unproven
+gap. See §10 of `docs/memory-policy.md`.
 
 ---
 
@@ -162,13 +166,23 @@ never reaches `aput`. See §10 of `docs/memory-policy.md`.
   `(RagIndexUnavailable, CorporaUnavailable)` → `[]`.
 - (from PR2, **now done**) the autouse `os.environ` snapshot/restore fixture — landed in PR4
   as `tests/conftest.py::_env_snapshot`. No longer a forward watch-out.
-- **New — async LangMem tools vs. async workers (open design question).** `PolicyStore`
-  only supports LangMem's memory tools through sync `.invoke()`
-  (`SqliteStore.abatch` unconditionally raises `NotImplementedError`, so `.ainvoke()` can't
-  reach `PolicyStore.aput`). PR5's workers are async ReAct loops. Before wiring
-  `build_memory_tools()` output into any worker, decide: call the memory tools
-  synchronously from inside the async worker, wrap them in a sync-to-async adapter, or give
-  `PolicyStore` a real `abatch` override. Not solved in PR4 — see `docs/memory-policy.md` §10.
+- **New — async LangMem tools vs. async workers (open design question).** `PolicyStore.aput`
+  cannot succeed from any async caller, period: `BaseStore.aput` unconditionally calls
+  `await self.abatch(...)`, and `SqliteStore.abatch` unconditionally raises
+  `NotImplementedError` for any async batch operation — this is true whether the caller is
+  LangMem's `.ainvoke()` or a direct first-party `await store.aput(...)`. PR5's workers are
+  async ReAct loops. Before wiring `build_memory_tools()` output into any worker, decide: call
+  the memory tools synchronously from inside the async worker, wrap them in a sync-to-async
+  adapter, or (preferred) give `PolicyStore` a real `abatch` override so `aput` has a working
+  path at all. Not solved in PR4 — see `docs/memory-policy.md` §10.
+- **New — `manage_memory` tool writes are always `routine` (open design question).**
+  LangMem's `create_manage_memory_tool` hardcodes `value={"content": ...}` at the top level of
+  what it passes to `store.put` — there is no way for an agent using that tool to set
+  `importance`, so every write made through it is permanently stamped `routine`. A worker that
+  needs to write a `critical` record (e.g. `decision_draft` recording a denial/appeal) must
+  call `PolicyStore.put(...)` directly with `value={"importance": "critical", ...}`, or PR5
+  needs its own first-party wrapper tool exposing an `importance` parameter — not the generic
+  `manage_memory` tool. See `docs/memory-policy.md` §§1, 3.
 
 **Resume:** `cd D:/Aru/NYU/Virtusa/prior-auth-copilot`, confirm `git log --first-parent`
 shows `Merge PR4`, then write `docs/implementation-plan-pr5.md` and run the SDD cycle.
