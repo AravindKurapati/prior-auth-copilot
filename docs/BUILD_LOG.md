@@ -93,7 +93,7 @@ try/except to `(RagIndexUnavailable, CorporaUnavailable)` → `[]`.
 
 ---
 
-## PR4 — Memory Subsystem  (merged `<pending merge>`)
+## PR4 — Memory Subsystem  (merged `050b488`)
 
 Tiered memory (design.md §6; AC-06, AC-07, AC-08): Tier-1 `memory/working.py`
 (`remember`/`recall`/`search_working` — pure dict transforms over
@@ -117,18 +117,26 @@ every write before enforcing the namespace's cap — this is how a single native
 achieves the per-namespace policy design.md §6.3 calls for. `open_memory_store()` degrades
 to `index=None` (no sqlite-vec) on extension-load failure, recording `store.semantic_error`
 rather than raising, so AC-06/07/08 hold on a machine without `sqlite-vec` available.
-Two real bugs were caught and fixed in review, not part of the original design: (1)
+Three real bugs were caught and fixed in review, not part of the original design: (1)
 `enforce_cap`'s internal namespace-listing scan must pass `refresh_ttl=False` — otherwise
 every write's cap-check silently refreshed the TTL of every *other* item in the namespace,
 defeating per-item expiry; (2) `open_memory_store` must close the sqlite3 connection on
 *both* failure edges before propagating/retrying, or it leaks the handle (observed as a
-locked-file failure on Windows). AC-06/07/08 evidence: `tests/test_ac06_tiered_memory.py` +
-`traces/tiered_memory_recall.json`; `tests/test_memory_persistence.py` +
-`scripts/run_persistence_test.py` + `traces/memory_persistence.log`;
-`tests/test_ac08_eviction.py` (its recency-eviction case backdates one item's
-`created_at`/`updated_at` via raw SQL, because SQLite's `CURRENT_TIMESTAMP` only has
-1-second granularity and back-to-back test writes otherwise tie on recency — see
-`docs/memory-policy.md` §8). 124 tests pass, pristine; `ruff check src tests` clean.
+locked-file failure on Windows); (3) — caught only at the **final whole-branch review**,
+invisible to 9 scoped task reviews — `enforce_cap`/`search_ranked` listed a namespace via
+`store.search(namespace, ...)`, which does a SQL *prefix* match with no trailing separator,
+so `("pa","member","M1")` also matched `("pa","member","M10")`: the cap silently failed to
+enforce (deleting a key that belonged to the other namespace no-ops) and `search_ranked`
+could return another member's records. Fixed by filtering both functions' results to the
+exact namespace tuple before any counting/ranking; regression test covers both directions
+and both functions (`tests/test_memory_store.py`). AC-06/07/08 evidence:
+`tests/test_ac06_tiered_memory.py` + `traces/tiered_memory_recall.json`;
+`tests/test_memory_persistence.py` + `scripts/run_persistence_test.py` +
+`traces/memory_persistence.log`; `tests/test_ac08_eviction.py` (its recency-eviction case
+backdates one item's `created_at`/`updated_at` via raw SQL, because SQLite's
+`CURRENT_TIMESTAMP` only has 1-second granularity and back-to-back test writes otherwise tie
+on recency — see `docs/memory-policy.md` §8). 129 tests pass (125 fast + 4 slow, 1 live-Gemini
+skip without a key), pristine; `ruff check src tests` clean.
 
 **Known limitation, not fixed here (PR5 watch-out):** LangMem's memory tools only work
 through synchronous `.invoke()` against `PolicyStore` — `.ainvoke()` raises
@@ -143,7 +151,7 @@ gap. See §10 of `docs/memory-policy.md`.
 
 ---
 
-## NEXT: PR5 — The Graph  (branch `feat/graph-core`, off `main` @ `<pending merge>`)
+## NEXT: PR5 — The Graph  (branch `feat/graph-core`, off `main` @ `050b488`)
 
 **Scope (design.md §3; AC-02, AC-03, AC-05; NFR-03, NFR-08):**
 - `supervisor.py` — deterministic guardrails + LLM router (`RouterDecision`) over
