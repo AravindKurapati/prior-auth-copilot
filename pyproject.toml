@@ -63,6 +63,13 @@ filterwarnings = [
     # module scoped to the third-party import site so an unrelated deprecation
     # still fails the suite.
     "ignore::langgraph.warnings.LangGraphDeprecatedSinceV10:trustcall",
+    # langgraph.prebuilt.create_react_agent (1.0.1) emits its own deprecation
+    # warning pointing at langchain.agents.create_agent, which does not exist in
+    # this project's pinned langchain==0.3.30 (verified 2026-09-11 — only the
+    # unrelated legacy prompt-based create_react_agent lives there). We use the
+    # langgraph prebuilt deliberately per docs/design.md; category + module
+    # scoped so an unrelated deprecation anywhere else still fails the suite.
+    "ignore::langgraph.warnings.LangGraphDeprecatedSinceV10",
 ]
 markers = ["slow: needs a model download or a live Gemini API key"]
 

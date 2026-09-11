@@ -8,6 +8,13 @@ the test files. Keep it dependency-light — plain classes, no pytest fixtures.
 from __future__ import annotations
 
 import zlib
+from typing import Any
+
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.runnables import RunnableLambda
+from pydantic import Field
 
 
 class FakeEmbedder:
@@ -32,3 +39,38 @@ class FakeEmbedder:
 
     def embed_query(self, text):
         return self._vec(text)
+
+
+def ai_tool_call(name: str, args: dict, *, id: str = "call1") -> AIMessage:
+    return AIMessage(content="", tool_calls=[{"name": name, "args": args, "id": id, "type": "tool_call"}])
+
+
+class FakeToolCallingModel(BaseChatModel):
+    """Deterministic BaseChatModel double for testing create_react_agent-based
+    worker loops with no network calls. `script` drives the tool-calling phase
+    (one scripted AIMessage per model turn); `structured_responses` drives the
+    separate structured-output call create_react_agent makes when response_format
+    is set. Both are consumed in order, once each, across the agent's lifetime —
+    build a fresh instance per test."""
+
+    script: list[BaseMessage] = Field(default_factory=list)
+    structured_responses: list[Any] = Field(default_factory=list)
+
+    def bind_tools(self, tools, **kwargs) -> "FakeToolCallingModel":
+        return self
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+        assert self.script, "FakeToolCallingModel script exhausted"
+        msg = self.script.pop(0)
+        return ChatResult(generations=[ChatGeneration(message=msg)])
+
+    def with_structured_output(self, schema, **kwargs):
+        def _pop(*_args, **_kwargs):
+            assert self.structured_responses, "FakeToolCallingModel structured_responses exhausted"
+            return self.structured_responses.pop(0)
+
+        return RunnableLambda(_pop)
+
+    @property
+    def _llm_type(self) -> str:
+        return "fake-tool-calling"
