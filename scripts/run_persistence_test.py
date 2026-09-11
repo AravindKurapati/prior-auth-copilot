@@ -90,6 +90,12 @@ def _run_child(db_path: str, mode: str) -> tuple[str, int]:
         capture_output=True,
         text=True,
     )
+    if res.returncode != 0 and res.stderr:
+        # Diagnostic-only: goes to the PARENT's own stderr so a human/CI log
+        # shows the child's traceback. Never folded into `combined` (the
+        # committed log) or the --stdout-only text the test diffs against --
+        # both must stay byte-stable on the success path.
+        print(res.stderr, file=sys.stderr, end="")
     return _TS.sub("<ts>", res.stdout), res.returncode
 
 
