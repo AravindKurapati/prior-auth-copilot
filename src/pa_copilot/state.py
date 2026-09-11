@@ -41,6 +41,7 @@ class PACaseState(TypedDict, total=False):
     tool_failures: Annotated[list[ToolFailure], operator.add]
     working_memory: dict[str, Any]
     context: dict[str, Any]
+    summarized_messages: list[AnyMessage]
 
 
 def _derive_reducer_fields() -> set[str]:
@@ -74,4 +75,5 @@ def new_case_state(
         tool_failures=[],
         working_memory={},
         context={},
+        summarized_messages=[],
     )
