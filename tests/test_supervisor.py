@@ -37,6 +37,12 @@ def test_hard_route_falls_through_to_none_when_nothing_matches():
     assert hard_route({"request": {}}) is None
 
 
+def test_hard_route_finished_decision_wins_over_missing_request():
+    """Unreachable in the current topology (decision can only be set downstream of
+    intake); pins the accepted guardrail-order ruling rather than leaving it untested."""
+    assert hard_route({"decision": {}, "needs_replan": False}) == "FINISH"
+
+
 @pytest.mark.asyncio
 async def test_supervisor_node_uses_llm_router_when_no_hard_rule_matches():
     fake = FakeToolCallingModel(structured_responses=[
