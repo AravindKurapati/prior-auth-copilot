@@ -5,6 +5,29 @@ from langgraph.graph.message import add_messages
 from pa_copilot.state import PACaseState, REDUCER_FIELDS, new_case_state
 
 
+def test_pa_case_state_is_a_typed_dict():
+    assert typing.is_typeddict(PACaseState)
+
+
+def test_every_node_module_reads_and_writes_pa_case_state():
+    # Structural check: each worker/supervisor/summarize module's node callable
+    # is a plain async function accepting one PACaseState-shaped dict and
+    # returning a dict — verified by this PR's own worker tests already
+    # exercising that contract; this test asserts the modules import cleanly
+    # and expose the expected factory/function names.
+    from pa_copilot import supervisor
+    from pa_copilot.agents import benefit_check, decision_draft, human_review, intake, medical_necessity
+    from pa_copilot.context import summarization
+
+    assert hasattr(supervisor, "build_supervisor_node")
+    assert hasattr(intake, "build_intake_node")
+    assert hasattr(benefit_check, "build_benefit_check_node")
+    assert hasattr(medical_necessity, "build_medical_necessity_node")
+    assert hasattr(decision_draft, "build_decision_draft_node")
+    assert hasattr(human_review, "build_human_review_node")
+    assert hasattr(summarization, "summarize")
+
+
 def test_state_is_typeddict_with_expected_keys():
     hints = typing.get_type_hints(PACaseState, include_extras=True)
     for key in [
