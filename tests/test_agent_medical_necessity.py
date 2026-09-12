@@ -89,6 +89,50 @@ async def test_medical_necessity_tool_failure_sets_needs_replan(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_low_confidence_necessity_still_sets_necessity_but_flags_needs_replan():
+    """Design ruling (PR6 plan's Architecture section 3): low confidence does NOT
+    withhold necessity from state -- the supervisor's LLM router already has a
+    fall-through path for this exact state and decides whether to loop back or
+    escalate. Withholding would be a second, conflicting mechanism and would
+    regress tests/_full_case.py's ambiguous-case fixture."""
+    necessity = NecessityAssessment(
+        criteria_status="indeterminate", policy_id="PA-MRI-LUMBAR", citations=[],
+        unmet_requirements=["conservative-therapy duration not clearly documented"],
+        confidence=0.2, rationale="mechanical check indeterminate, low confidence",
+    )
+    model = FakeToolCallingModel(
+        script=[
+            ai_tool_call("criteria_check", {"service_code": "72148", "diagnosis_codes": ["M54.16"]}),
+            AIMessage(content="assessed, low confidence"),
+        ],
+        structured_responses=[necessity],
+    )
+    node = build_medical_necessity_node(mcp_tools=[criteria_check], model=model)
+    update = await node(_state())
+    assert update["necessity"] == necessity
+    assert update["needs_replan"] is True
+
+
+@pytest.mark.asyncio
+async def test_high_confidence_necessity_does_not_flag_needs_replan():
+    necessity = NecessityAssessment(
+        criteria_status="met", policy_id="PA-MRI-LUMBAR", citations=[], unmet_requirements=[],
+        confidence=0.9, rationale="clearly met",
+    )
+    model = FakeToolCallingModel(
+        script=[
+            ai_tool_call("criteria_check", {"service_code": "72148", "diagnosis_codes": ["M54.16"]}),
+            AIMessage(content="assessed"),
+        ],
+        structured_responses=[necessity],
+    )
+    node = build_medical_necessity_node(mcp_tools=[criteria_check], model=model)
+    update = await node(_state())
+    assert update["necessity"] == necessity
+    assert "needs_replan" not in update
+
+
+@pytest.mark.asyncio
 async def test_medical_necessity_defensive_fallback_when_benefit_missing():
     """PR5b final-review Fix B, part 2: hard_route's new benefit-None ->
     benefit_check guardrail is what actually prevents this in practice, but

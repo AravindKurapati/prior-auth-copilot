@@ -17,6 +17,7 @@ from pa_copilot.agents._react import (
     get_lite_agent_model,
     tool_failure_update,
 )
+from pa_copilot.config import get_settings
 from pa_copilot.context.assembly import select_for
 from pa_copilot.rag.tool import search_clinical_guidance
 from pa_copilot.reflection import attribute_tool_errors, run_worker_react_resilient
@@ -90,6 +91,20 @@ def build_medical_necessity_node(
         except (WorkerOutputError, WorkerRecursionError):
             return {"needs_replan": True}
 
-        return {"necessity": necessity, "retrieved_criteria": necessity.citations}
+        update = {"necessity": necessity, "retrieved_criteria": necessity.citations}
+        # AC-12 low-confidence reflection trigger (design.md §3.5): flag for
+        # the supervisor's bookkeeping (replan_count increment + cap), but do
+        # NOT withhold `necessity` from state -- the supervisor's LLM router
+        # already has a fall-through path for this exact state (necessity set,
+        # decision None, no hard_route rule matches) and decides whether to
+        # loop back here or escalate, exactly as design.md's "supervisor loops
+        # back with a hint" implies. Withholding necessity would be a second,
+        # conflicting mechanism and would regress tests/_full_case.py's
+        # ambiguous-case fixture, which relies on this exact low-confidence
+        # NecessityAssessment still being visible to the (scripted) router.
+        settings = get_settings()
+        if necessity.confidence < settings.tau or necessity.criteria_status == "indeterminate":
+            update["needs_replan"] = True
+        return update
 
     return _node

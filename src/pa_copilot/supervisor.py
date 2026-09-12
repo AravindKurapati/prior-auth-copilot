@@ -51,7 +51,9 @@ def hard_route(state: PACaseState, *, settings: Settings | None = None) -> Route
 
     if state.get("supervisor_hops", 0) >= s.max_hops:
         return "human_review"
-    if state.get("tool_failures") and state.get("replan_count", 0) >= s.max_replans:
+    if (state.get("tool_failures") or state.get("needs_replan")) and state.get(
+        "replan_count", 0
+    ) >= s.max_replans:
         return "human_review"
     if state.get("decision") is not None and not state.get("needs_replan"):
         return "FINISH"
@@ -68,16 +70,39 @@ def _missing_checklist(state: PACaseState) -> list[str]:
     return [f for f in ("request", "benefit", "necessity", "decision") if state.get(f) is None]
 
 
-async def route_with_llm(state: PACaseState, *, model=None) -> RouterDecision:
+async def route_with_llm(
+    state: PACaseState, *, model=None, settings: Settings | None = None
+) -> RouterDecision:
     model = model or get_agent_model()
+    s = settings or get_settings()
     summary = (state.get("context") or {}).get("running_summary")
     summary_text = getattr(summary, "summary", None) or "no summary yet"
     history = state.get("route_history") or []
+    hint = ""
+    if state.get("needs_replan"):
+        necessity = state.get("necessity")
+        if necessity is not None and (
+            necessity.confidence < s.tau or necessity.criteria_status == "indeterminate"
+        ):
+            hint = (
+                f"\nReflection hint: the last medical_necessity assessment was "
+                f"low-confidence (confidence={necessity.confidence:.2f}, "
+                f"status={necessity.criteria_status}). Consider routing back to "
+                "medical_necessity to reassess with broader retrieval, or escalate to "
+                "human_review if this has already been retried."
+            )
+        elif state.get("tool_failures"):
+            hint = (
+                "\nReflection hint: the last worker call failed a tool call. Routing "
+                "back to the same phase will retry it; escalate to human_review if "
+                "this has already been retried multiple times."
+            )
     prompt = (
         "You are the routing supervisor for a prior-authorization case.\n"
         f"Case summary so far: {summary_text}\n"
         f"Still missing: {_missing_checklist(state)}\n"
-        f"Recent routing history: {[h for h in history[-5:]]}\n"
+        f"Recent routing history: {[h for h in history[-5:]]}"
+        f"{hint}\n"
         "Choose the next node."
     )
     return await model.with_structured_output(RouterDecision).ainvoke([("user", prompt)])
@@ -87,11 +112,15 @@ def build_supervisor_node(*, model=None, settings: Settings | None = None) -> Ca
     s = settings or get_settings()
 
     async def _node(state: PACaseState) -> dict:
-        target = hard_route(state, settings=s)
+        was_replanning = bool(state.get("needs_replan"))
+        replan_count = state.get("replan_count", 0) + (1 if was_replanning else 0)
+        effective_state = {**state, "replan_count": replan_count} if was_replanning else state
+
+        target = hard_route(effective_state, settings=s)
         if target is not None:
             reason = f"deterministic guardrail -> {target}"
         else:
-            decision = await route_with_llm(state, model=model)
+            decision = await route_with_llm(effective_state, model=model, settings=s)
             target = decision.next
             reason = decision.rationale
 
@@ -99,10 +128,14 @@ def build_supervisor_node(*, model=None, settings: Settings | None = None) -> Ca
             from_node="supervisor", to_node=target, reason=reason,
             ts=datetime.now(timezone.utc).isoformat(),
         )
-        return {
+        update = {
             "next": target,
             "route_history": [step],
             "supervisor_hops": state.get("supervisor_hops", 0) + 1,
         }
+        if was_replanning:
+            update["replan_count"] = replan_count
+            update["needs_replan"] = False
+        return update
 
     return _node

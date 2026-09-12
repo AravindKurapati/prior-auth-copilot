@@ -24,6 +24,15 @@ def test_hard_route_exhausted_replans_goes_to_human_review():
     assert hard_route(state, settings=s) == "human_review"
 
 
+def test_hard_route_exhausted_replans_goes_to_human_review_via_needs_replan_alone():
+    """PR6: the broadened cap check must also fire on a persistent LOW-CONFIDENCE
+    loop (no ToolFailure at all) -- not just the tool-failure path the test above
+    covers."""
+    s = get_settings()
+    state = {"request": {}, "needs_replan": True, "replan_count": s.max_replans}
+    assert hard_route(state, settings=s) == "human_review"
+
+
 def test_hard_route_hop_cap_wins_over_finished_decision():
     s = get_settings()
     state = {
@@ -85,3 +94,27 @@ async def test_supervisor_node_uses_hard_rule_without_calling_model():
     node = build_supervisor_node(model=None)  # would blow up if it tried a real LLM call
     update = await node({})
     assert update["next"] == "intake"
+
+
+@pytest.mark.asyncio
+async def test_supervisor_node_increments_replan_count_and_clears_needs_replan():
+    # request=None keeps hard_route fully deterministic (request-None -> intake,
+    # unrelated to the replan cap/hint machinery) so this test proves the
+    # increment/clear happens regardless of trigger source or resulting route,
+    # without needing a real/fake LLM call (model=None would blow up if the
+    # LLM router path were ever reached).
+    node = build_supervisor_node(model=None)
+    update = await node({
+        "request": None, "needs_replan": True, "replan_count": 0, "supervisor_hops": 0,
+    })
+    assert update["next"] == "intake"
+    assert update["replan_count"] == 1
+    assert update["needs_replan"] is False
+
+
+@pytest.mark.asyncio
+async def test_supervisor_node_leaves_replan_count_untouched_when_not_replanning():
+    node = build_supervisor_node(model=None)
+    update = await node({"replan_count": 0})
+    assert "replan_count" not in update
+    assert "needs_replan" not in update
