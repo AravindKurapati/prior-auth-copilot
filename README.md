@@ -13,7 +13,7 @@ Built on **LangGraph** (hand-rolled supervisor graph, typed state, conditional r
 SQLite checkpointer), a **custom MCP server** (3 tools + 1 resource over stdio) consumed via
 `langchain-mcp-adapters`, engineered context (write / select / compress / isolate +
 summarization + quarantine of untrusted provider text), and **tiered memory**
-(`SqliteSaver` working memory + `SqliteStore` semantic long-term memory with TTL /
+(`AsyncSqliteSaver` working memory + `SqliteStore` semantic long-term memory with TTL /
 importance / LRU eviction) whose cross-session persistence is proven by a committed test.
 Google Gemini is the only LLM provider. Runs with `pip` + Python alone — no Docker, no
 database service.

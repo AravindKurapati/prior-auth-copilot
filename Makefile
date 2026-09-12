@@ -1,10 +1,10 @@
-.PHONY: install lint test test-all ingest ingest-rag chunks run demo persistence-test samples all
+.PHONY: install lint test test-all ingest ingest-rag chunks run demo persistence-test pause-resume-test samples all
 
 install:
 	pip install -e ".[dev]"
 
 lint:
-	ruff check src tests
+	ruff check src tests scripts
 
 test:
 	pytest -q -m "not slow"
@@ -27,6 +27,10 @@ demo:
 # pac persistence-test once PR7 wires the CLI
 persistence-test:
 	python scripts/run_persistence_test.py
+
+# pac pause-resume-test once PR7 wires the CLI
+pause-resume-test:
+	python scripts/run_pause_resume_test.py
 
 samples:
 	python scripts/make_samples.py

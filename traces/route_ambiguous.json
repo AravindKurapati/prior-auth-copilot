@@ -1,0 +1,28 @@
+{
+  "schema_version": "1",
+  "case_id": "case-ambiguous-full",
+  "route_history": [
+    {
+      "from_node": "supervisor",
+      "to_node": "intake",
+      "reason": "deterministic guardrail -> intake"
+    },
+    {
+      "from_node": "supervisor",
+      "to_node": "benefit_check",
+      "reason": "request captured; benefit still unknown"
+    },
+    {
+      "from_node": "supervisor",
+      "to_node": "medical_necessity",
+      "reason": "benefit confirmed; necessity still unknown"
+    },
+    {
+      "from_node": "supervisor",
+      "to_node": "human_review",
+      "reason": "necessity indeterminate with low confidence; escalate to a human reviewer"
+    }
+  ],
+  "final_next": "human_review",
+  "paused_for_human_review": true
+}

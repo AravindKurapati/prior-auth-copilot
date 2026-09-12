@@ -17,6 +17,22 @@ request-None -> default None. (request-None and hops-cap can't both be true in
 practice, since a real state only starts accumulating supervisor_hops once a
 request exists, so its position among the checks doesn't affect current
 tests -- kept ahead of "decision finished" since design.md lists it first.)
+
+Two more deterministic guardrails sit in the same tier, immediately after
+request-None (PR5b final-review fix wave, Fix B): benefit-None -> benefit_check
+and necessity-None -> medical_necessity. The LLM router (RouterDecision.next)
+is a free choice over all five workers with no ordering guarantee, so nothing
+previously stopped it picking medical_necessity before benefit_check had set
+state["benefit"], or decision_draft before medical_necessity had set
+state["necessity"] -- both reproduced as uncaught AttributeErrors in the two
+downstream workers. These two rules force the natural prerequisite order
+deterministically, without disturbing any guardrail already ordered above
+them. Note: this also makes design.md §3.3's documented decision_draft
+short-circuit (skipping medical_necessity when benefit.covered=False or
+benefit.requires_pa=False) currently unreachable -- necessity is now always
+forced before decision_draft. Re-enabling that optimization is out of scope
+for this fix wave; it requires decision_draft.py to handle necessity=None as a
+valid input, which is real design work for a future PR.
 """
 
 from __future__ import annotations
@@ -41,6 +57,10 @@ def hard_route(state: PACaseState, *, settings: Settings | None = None) -> Route
         return "FINISH"
     if state.get("request") is None:
         return "intake"
+    if state.get("benefit") is None:
+        return "benefit_check"
+    if state.get("necessity") is None:
+        return "medical_necessity"
     return None
 
 

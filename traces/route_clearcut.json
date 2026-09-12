@@ -1,0 +1,33 @@
+{
+  "schema_version": "1",
+  "case_id": "case-clearcut-full",
+  "route_history": [
+    {
+      "from_node": "supervisor",
+      "to_node": "intake",
+      "reason": "deterministic guardrail -> intake"
+    },
+    {
+      "from_node": "supervisor",
+      "to_node": "benefit_check",
+      "reason": "request captured; benefit still unknown"
+    },
+    {
+      "from_node": "supervisor",
+      "to_node": "medical_necessity",
+      "reason": "benefit confirmed; necessity still unknown"
+    },
+    {
+      "from_node": "supervisor",
+      "to_node": "decision_draft",
+      "reason": "necessity clearly met; ready to draft"
+    },
+    {
+      "from_node": "supervisor",
+      "to_node": "FINISH",
+      "reason": "deterministic guardrail -> FINISH"
+    }
+  ],
+  "final_next": "FINISH",
+  "paused_for_human_review": false
+}

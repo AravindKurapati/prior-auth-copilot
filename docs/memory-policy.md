@@ -11,7 +11,7 @@ AC-08 (eviction/importance policy). Design context: `docs/design.md` §6. Implem
 
 | Tier | Store | Scope | Module | Persisted by |
 |---|---|---|---|---|
-| **1 — working** | `state["working_memory"]["facts"]` | one case / thread | `memory/working.py`: `remember`, `recall`, `search_working` — pure dict transforms, no store/model dependency | `SqliteSaver` checkpointer (wired in PR5); this PR exercises the dict ops directly |
+| **1 — working** | `state["working_memory"]["facts"]` | one case / thread | `memory/working.py`: `remember`, `recall`, `search_working` — pure dict transforms, no store/model dependency | `AsyncSqliteSaver` checkpointer (wired in PR5b; the fully-async graph cannot use the sync `SqliteSaver` — see `docs/design.md` §1); this PR exercises the dict ops directly |
 | **2 — long-term / semantic** | `PolicyStore` (`SqliteStore` subclass) over `.pa_memory.db`, optional `sqlite-vec` index | cross-thread, cross-session | `memory/store.py`, `memory/policy.py`, `memory/embeddings.py` | on-disk SQLite; survives process exit |
 
 Tier-2 namespaces (`config/memory.yaml`): `("pa","member",<id>)`, `("pa","provider",<npi>)`,

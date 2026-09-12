@@ -246,8 +246,10 @@ NFR-03's full "disposition not forced" proof):**
 - `graph.py` — the actual hand-rolled `StateGraph` topology (`summarize` → `supervisor`
   → conditional → workers → `summarize` → `supervisor` ... → `FINISH`/`human_review`),
   async `make_graph()`, wiring in all five workers (the two from PR5a plus the three
-  above) and the checkpointer: `graph.compile(checkpointer=SqliteSaver...,
-  store=PolicyStore...)`. `pac submit` / `pac resume` as two separate process
+  above) and the checkpointer: `graph.compile(checkpointer=AsyncSqliteSaver...,
+  store=PolicyStore...)` (not the sync `SqliteSaver` — this fully-async graph can't run
+  any async checkpoint operation against it; see `docs/design.md` §1). `pac submit` /
+  `pac resume` as two separate process
   invocations, `traces/pause_resume_transcript.md`.
 - Full AC-02/03/05 evidence needs a compiled, runnable graph — that's this PR, not PR5a.
 - NFR-03's full "disposition not forced" canary proof needs `decision_draft` to exist —
