@@ -118,3 +118,27 @@ async def test_supervisor_node_leaves_replan_count_untouched_when_not_replanning
     update = await node({"replan_count": 0})
     assert "replan_count" not in update
     assert "needs_replan" not in update
+
+
+@pytest.mark.asyncio
+async def test_supervisor_node_increment_is_visible_to_hard_route_same_turn():
+    """Task 3 review finding: the sibling test above (request=None) proves the
+    increment/clear happens, but request-None routes to "intake" regardless of
+    replan_count, so it would NOT fail if a regression fed hard_route the
+    ORIGINAL un-incremented state instead of effective_state. This test uses a
+    state where every other hard_route rule is satisfied (request/benefit/
+    necessity all set, decision unset) so the cap-exhaustion check is the ONLY
+    rule that can fire -- and it only fires if hard_route sees the just-
+    incremented replan_count (max_replans - 1 -> max_replans) on this same
+    turn, not one turn late. model=None: would blow up calling get_agent_model()
+    if the LLM router were ever reached, so reaching an assertion at all also
+    proves the cap check won -- not a fall-through."""
+    s = get_settings()
+    node = build_supervisor_node(model=None)
+    update = await node({
+        "request": {}, "benefit": {}, "necessity": {}, "needs_replan": True,
+        "replan_count": s.max_replans - 1, "supervisor_hops": 0,
+    })
+    assert update["next"] == "human_review"
+    assert update["replan_count"] == s.max_replans
+    assert update["needs_replan"] is False
