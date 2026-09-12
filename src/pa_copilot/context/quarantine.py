@@ -5,6 +5,8 @@ never interpolated into an instruction template. Only `intake` reads it."""
 
 from __future__ import annotations
 
+import html
+
 from langchain_core.messages import BaseMessage, HumanMessage
 
 QUARANTINE_PREAMBLE = (
@@ -21,8 +23,16 @@ def make_quarantine_ref(case_id: str) -> str:
 
 
 def build_quarantined_message(raw_text: str) -> HumanMessage:
-    # HTML-escape < and > in raw_text to prevent delimiter forgery
-    escaped_text = raw_text.replace("<", "&lt;").replace(">", "&gt;")
+    # Escape raw_text to prevent delimiter forgery. Use stdlib html.escape
+    # (quote=False -- only guarding against tag forgery, not attribute
+    # contexts, so " / ' are deliberately left untouched) rather than a
+    # hand-rolled .replace("<", ...).replace(">", ...) chain: the latter
+    # escapes & only implicitly (it doesn't escape "&" at all), so provider
+    # text containing a literal "&lt;" as plain text (not a real "<"
+    # character) is indistinguishable from real escaped markup after that
+    # transform. html.escape escapes "&" first, standard ordering, so a
+    # literal "&lt;" round-trips as "&amp;lt;" instead of colliding.
+    escaped_text = html.escape(raw_text, quote=False)
     return HumanMessage(
         content=f"{QUARANTINE_PREAMBLE}\n\n{_OPEN_TAG}\n{escaped_text}\n{_CLOSE_TAG}"
     )
