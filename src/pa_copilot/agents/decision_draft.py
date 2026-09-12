@@ -16,10 +16,11 @@ from pa_copilot.agents._react import (
     WorkerOutputError,
     WorkerRecursionError,
     get_agent_model,
-    run_worker_react,
+    get_lite_agent_model,
 )
 from pa_copilot.context.assembly import select_for
 from pa_copilot.memory.store import PolicyStore
+from pa_copilot.reflection import attribute_tool_errors, run_worker_react_resilient
 from pa_copilot.schemas import PADecision
 from pa_copilot.state import PACaseState
 
@@ -59,12 +60,15 @@ def build_decision_draft_node(
             )
         )
         try:
-            _messages, decision = await run_worker_react(
+            _messages, decision = await run_worker_react_resilient(
                 model or get_agent_model(),
-                tools=[],
+                attribute_tool_errors([]),
                 system_prompt=_SYSTEM_PROMPT,
                 messages=[prompt],
                 response_format=PADecision,
+                # Deferred like `model or get_agent_model()` above -- see
+                # intake.py's identical comment for why.
+                lite_model=get_lite_agent_model() if model is None else None,
             )
         except (WorkerOutputError, WorkerRecursionError):
             return {"needs_replan": True}

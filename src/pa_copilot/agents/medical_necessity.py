@@ -14,11 +14,12 @@ from pa_copilot.agents._react import (
     WorkerRecursionError,
     WorkerToolError,
     get_agent_model,
-    run_worker_react,
+    get_lite_agent_model,
     tool_failure_update,
 )
 from pa_copilot.context.assembly import select_for
 from pa_copilot.rag.tool import search_clinical_guidance
+from pa_copilot.reflection import attribute_tool_errors, run_worker_react_resilient
 from pa_copilot.schemas import NecessityAssessment
 from pa_copilot.state import PACaseState
 
@@ -40,7 +41,15 @@ _SYSTEM_PROMPT = (
 def build_medical_necessity_node(
     *, mcp_tools: list | None = None, model=None
 ) -> Callable[[PACaseState], Awaitable[dict]]:
-    tools = [*(mcp_tools or []), search_clinical_guidance]
+    # search_clinical_guidance is a module-level singleton reused by every
+    # build_medical_necessity_node() call; attribute_tool_errors mutates a
+    # tool in place (sets .func/.coroutine wrappers + the _pa_attributed
+    # marker), so wrapping the singleton directly would leak that mutation
+    # process-wide -- including into unrelated tests that take their own
+    # `search_clinical_guidance.model_copy(...)` and expect a pristine,
+    # unwrapped tool (the marker survives model_copy()). A per-build copy
+    # keeps the wrapping local to this node's own tools list.
+    tools = attribute_tool_errors([*(mcp_tools or []), search_clinical_guidance.model_copy()])
 
     async def _node(state: PACaseState) -> dict:
         if state.get("benefit") is None:
@@ -60,12 +69,21 @@ def build_medical_necessity_node(
             )
         )
         try:
-            _messages, necessity = await run_worker_react(
+            _messages, necessity = await run_worker_react_resilient(
                 model or get_agent_model(),
                 tools,
                 system_prompt=_SYSTEM_PROMPT,
                 messages=[prompt],
                 response_format=NecessityAssessment,
+                # Deferred like `model or get_agent_model()` above: only build a
+                # real lite fallback when the caller didn't already supply a
+                # substitute `model` (tests inject a FakeToolCallingModel here
+                # and have no corresponding real lite backing -- constructing
+                # get_lite_agent_model() unconditionally would eagerly hit
+                # real Google credential resolution on every call, fake-model
+                # tests included, since Python evaluates this argument before
+                # run_worker_react_resilient ever runs).
+                lite_model=get_lite_agent_model() if model is None else None,
             )
         except WorkerToolError as exc:
             return tool_failure_update(exc)

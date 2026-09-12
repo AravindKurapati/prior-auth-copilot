@@ -12,13 +12,14 @@ from typing import Awaitable, Callable
 from pa_copilot.agents._react import (
     WorkerToolError,
     get_agent_model,
-    run_worker_react,
+    get_lite_agent_model,
     tool_failure_update,
 )
 from pa_copilot.context.assembly import select_for, write_working_memory
 from pa_copilot.context.quarantine import build_quarantined_message, make_quarantine_ref
 from pa_copilot.memory.store import PolicyStore
 from pa_copilot.memory.tools import build_memory_tools
+from pa_copilot.reflection import attribute_tool_errors, run_worker_react_resilient
 from pa_copilot.schemas import PARequest
 from pa_copilot.state import PACaseState
 
@@ -36,19 +37,26 @@ def build_intake_node(
     *, store: PolicyStore, mcp_tools: list | None = None, model=None
 ) -> Callable[[PACaseState], Awaitable[dict]]:
     _, search_member = build_memory_tools(store, ("pa", "member", "{member_id}"))
-    tools = [*(mcp_tools or []), search_member]
+    tools = attribute_tool_errors([*(mcp_tools or []), search_member])
 
     async def _node(state: PACaseState) -> dict:
         view = select_for("intake", state)
         quarantined = build_quarantined_message(view["raw_provider_text"])
         try:
-            _messages, request = await run_worker_react(
+            _messages, request = await run_worker_react_resilient(
                 model or get_agent_model(),
                 tools,
                 system_prompt=_INTAKE_SYSTEM_PROMPT,
                 messages=[quarantined],
                 response_format=PARequest,
                 config={"configurable": {"member_id": view["member_id"]}},
+                # Deferred like `model or get_agent_model()` above: a real lite
+                # fallback is only meaningful (and only cheap to construct --
+                # no live credential resolution needed) when no substitute
+                # `model` was already supplied (tests inject a
+                # FakeToolCallingModel here and have no matching real lite
+                # backing).
+                lite_model=get_lite_agent_model() if model is None else None,
             )
         except WorkerToolError as exc:
             return tool_failure_update(exc)

@@ -50,7 +50,16 @@ async def test_medical_necessity_calls_rag_when_indeterminate():
 
 
 @pytest.mark.asyncio
-async def test_medical_necessity_tool_failure_sets_needs_replan():
+async def test_medical_necessity_tool_failure_sets_needs_replan(monkeypatch):
+    # PR6: run_worker_react_resilient retries a WorkerToolError up to
+    # max_tool_retries times against the SAME FakeToolCallingModel, whose
+    # scripted queue is single-shot — a retry would hit an exhausted script
+    # and fail a different (unattributed) way, masking the real attribution
+    # this test exists to prove. Pin to 1 attempt: this test is about the
+    # single-failure contract, not retry behavior (that's
+    # test_reflection_resilience.py's job).
+    monkeypatch.setenv("PA_MAX_TOOL_RETRIES", "1")
+
     # Named "criteria_check" explicitly (matching the scripted ai_tool_call
     # name) rather than left as the plain function-derived
     # "broken_criteria_check" — a mismatch here would make ToolNode treat the
@@ -70,6 +79,13 @@ async def test_medical_necessity_tool_failure_sets_needs_replan():
     node = build_medical_necessity_node(mcp_tools=[broken_criteria_check], model=model)
     update = await node(_state())
     assert update["needs_replan"] is True
+    # PR6 Task 1/2: medical_necessity binds 2 tools (criteria_check +
+    # search_clinical_guidance) — exactly the case _best_effort_tool_name
+    # could never get right (it fell back to "unknown_tool" for any worker
+    # bound to 2+ tools, PR5a/5b's carried-forward gap). attribute_tool_errors
+    # now tags the failure with the REAL tool name via AttributedToolError.
+    assert update["tool_failures"][0].tool == "criteria_check"
+    assert update["tool_failures"][0].tool != "unknown_tool"
 
 
 @pytest.mark.asyncio

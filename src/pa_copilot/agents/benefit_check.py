@@ -11,10 +11,11 @@ from langchain_core.messages import HumanMessage
 from pa_copilot.agents._react import (
     WorkerToolError,
     get_agent_model,
-    run_worker_react,
+    get_lite_agent_model,
     tool_failure_update,
 )
 from pa_copilot.context.assembly import select_for
+from pa_copilot.reflection import attribute_tool_errors, run_worker_react_resilient
 from pa_copilot.schemas import BenefitResult
 from pa_copilot.state import PACaseState
 
@@ -28,7 +29,7 @@ _BENEFIT_SYSTEM_PROMPT = (
 def build_benefit_check_node(
     *, mcp_tools: list | None = None, model=None
 ) -> Callable[[PACaseState], Awaitable[dict]]:
-    tools = list(mcp_tools or [])
+    tools = attribute_tool_errors(list(mcp_tools or []))
 
     async def _node(state: PACaseState) -> dict:
         view = select_for("benefit_check", state)
@@ -44,12 +45,15 @@ def build_benefit_check_node(
             )
         )
         try:
-            _messages, benefit = await run_worker_react(
+            _messages, benefit = await run_worker_react_resilient(
                 model or get_agent_model(),
                 tools,
                 system_prompt=_BENEFIT_SYSTEM_PROMPT,
                 messages=[prompt],
                 response_format=BenefitResult,
+                # Deferred like `model or get_agent_model()` above -- see
+                # intake.py's identical comment for why.
+                lite_model=get_lite_agent_model() if model is None else None,
             )
         except WorkerToolError as exc:
             return tool_failure_update(exc)
