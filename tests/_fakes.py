@@ -7,6 +7,7 @@ the test files. Keep it dependency-light — plain classes, no pytest fixtures.
 
 from __future__ import annotations
 
+import itertools
 import zlib
 from typing import Any
 
@@ -41,8 +42,19 @@ class FakeEmbedder:
         return self._vec(text)
 
 
-def ai_tool_call(name: str, args: dict, *, id: str = "call1") -> AIMessage:
-    return AIMessage(content="", tool_calls=[{"name": name, "args": args, "id": id, "type": "tool_call"}])
+_next_call_id = itertools.count(1)
+
+
+def ai_tool_call(name: str, args: dict, *, call_id: str | None = None) -> AIMessage:
+    """Build an AIMessage with a single scripted tool call. `call_id` defaults
+    to a fresh, process-unique id per invocation (rather than a fixed literal
+    like "call1") so a test scripting two-or-more tool calls in one message
+    thread doesn't silently produce duplicate tool-call ids."""
+    if call_id is None:
+        call_id = f"call{next(_next_call_id)}"
+    return AIMessage(
+        content="", tool_calls=[{"name": name, "args": args, "id": call_id, "type": "tool_call"}]
+    )
 
 
 class FakeToolCallingModel(BaseChatModel):
