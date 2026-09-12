@@ -229,38 +229,120 @@ in the now-deleted SDD workspace, summarized here):**
 
 ---
 
-## NEXT: PR5b — Graph Core, Part B  (branch `feat/graph-core-b`, off `main` @ `3f85be8`)
+## PR5b — Graph Core, Part B  (merged `5b0068c`)
 
-**Scope (design.md §3; closes AC-01/02/03/04/05 in full, AC-10/11's in-graph proof,
-NFR-03's full "disposition not forced" proof):**
-- `agents/medical_necessity.py` — calls MCP `criteria_check`; decides whether to call
-  the agentic RAG tool (`should_search_guidance` from PR3); emits `NecessityAssessment`.
-  Widen its tool-call try/except to `(RagIndexUnavailable, CorporaUnavailable)` (PR3
-  park, still open).
-- `agents/decision_draft.py` — synthesizes `benefit` + `necessity` into `PADecision`;
-  self-critiques against `retrieved_criteria`; this is the first worker that writes a
-  **critical**-importance memory record (a denial/appeal) — per this session's design
-  decision, do it via a direct `PolicyStore.put(..., value={"importance": "critical",
-  ...})` call, not the generic `manage_memory` tool (which hardcodes `routine`).
-- `agents/human_review.py` — terminal stub, calls `interrupt()`.
-- `graph.py` — the actual hand-rolled `StateGraph` topology (`summarize` → `supervisor`
-  → conditional → workers → `summarize` → `supervisor` ... → `FINISH`/`human_review`),
-  async `make_graph()`, wiring in all five workers (the two from PR5a plus the three
-  above) and the checkpointer: `graph.compile(checkpointer=AsyncSqliteSaver...,
-  store=PolicyStore...)` (not the sync `SqliteSaver` — this fully-async graph can't run
-  any async checkpoint operation against it; see `docs/design.md` §1). `pac submit` /
-  `pac resume` as two separate process
-  invocations, `traces/pause_resume_transcript.md`.
-- Full AC-02/03/05 evidence needs a compiled, runnable graph — that's this PR, not PR5a.
-- NFR-03's full "disposition not forced" canary proof needs `decision_draft` to exist —
-  build it here, reusing PR5a's `context/quarantine.py` mechanism as-is.
-- Decide whether worker results should append a compact message to `state["messages"]`
-  (PR5a's final review flagged that nothing currently does, which means the real system
-  won't generate a thread long enough for PR5a's NFR-08 `SummarizationNode` wrapper to
-  ever fire once wired into a real graph — see `specs/nfr.md`'s NFR-08 caveat).
+Closes **AC-01/02/03/04/05/10/11 in full, NFR-03 in full**. `agents/medical_necessity.py`
+(MCP `criteria_check` + agentic RAG retrieval — the model decides when to call
+`search_clinical_guidance` from its system prompt, not a code-level gate),
+`agents/decision_draft.py` (synthesis + citation self-critique against
+`retrieved_criteria`; writes a **critical**-importance memory record via a direct
+`PolicyStore.put(...)` call on `disposition == "deny"` only, per design.md §6.3's literal
+"denials/appeals = critical"), `agents/human_review.py` (`interrupt()` stub), `graph.py`
+(the actual hand-rolled 7-node `StateGraph`), checkpointer wiring via
+`AsyncSqliteSaver` — **the sync `SqliteSaver` design.md originally specified cannot run
+any async operation at all** in this fully-async graph (verified empirically: raises
+`NotImplementedError` on the first checkpoint read) — `docs/design.md` §1 corrected.
+Pause/resume verified end-to-end across genuinely separate process invocations
+(`scripts/run_pause_resume_test.py` → `traces/pause_resume_transcript.md`). Full-graph
+evidence for AC-02/03 (`traces/run_full_case.json`, `route_clearcut.json`,
+`route_ambiguous.json`) and NFR-03's canary (`traces/quarantine_canary.json`) all run
+through the real compiled graph via `FakeToolCallingModel` (no `GEMINI_API_KEY` in this
+environment). 196 tests pass, pristine; `ruff check src tests scripts` clean.
+
+Key bugs caught only at review, invisible to every per-task check (same pattern as PR5a's
+`PolicyStore.abatch` gap): (1) **task review** on the full-graph-evidence task caught all
+three newly-committed trace files embedding real wall-clock timestamps, violating this
+project's byte-stable-evidence convention — fixed by stripping `RouteStep.ts` at each
+producer's serialization site (not centralized — a future producer can reintroduce this,
+per the final review's own recommendation that PR7's `test_nfr04_trace_schema.py` should
+assert repo-wide no committed trace contains a timestamp). (2) **final whole-branch
+review** measured and reproduced two real crash bugs no per-task review could see, because
+every committed run in the branch was scripted into the correct order: `settings
+.recursion_limit` was never bound to the compiled graph (LangGraph's default 25-superstep
+limit crashed a real run around `supervisor_hops == 8`, well before `config/routing.yaml`'s
+`max_hops: 12` guardrail could ever fire — fixed via `compiled.with_config({"recursion_limit":
+...})` in `make_graph`); the LLM router has no ordering guarantee and could pick
+`medical_necessity`/`decision_draft` before their prerequisite state (`benefit`/
+`necessity`) was set, causing an uncaught `AttributeError` — fixed with two new
+deterministic `hard_route` guardrails (`benefit is None -> benefit_check`, `necessity is
+None -> medical_necessity`) plus a defensive `needs_replan` fallback in both workers as a
+second line of defense. Fixing the recursion limit also means `config/routing.yaml`'s hop
+cap (12) is reachable in production for the first time — which unmasks the
+`supervisor_hops`-never-resets-on-resume gap (below) as a live risk, not a dormant one.
+
+**Ruling (recorded, not implemented):** design.md §3.3's documented "supervisor can
+short-circuit not-covered cases directly to `decision_draft`, skipping
+`medical_necessity`" optimization is currently unreachable (the new hard-route guardrail
+forces `medical_necessity` first) — deliberately not re-implemented this PR; doing so
+properly needs `decision_draft` to treat `necessity=None` as a valid input producing a
+real (likely deny) decision, not just avoid a crash. Real design work for whoever next
+touches supervisor routing, not a fix-wave item.
+
+**Parked/deferred items carried forward (not fixed in PR5b):**
+- **`supervisor_hops` never resets on resume** — `hard_route`'s hop-cap check only ever
+  increments; nothing in application code (`human_review.py`/`supervisor.py`) resets it
+  after a real resume. Task 6's own evidence script only works by manually passing
+  `Command(update={"supervisor_hops": 0})` — no exposed application mechanism does this.
+  **Must be fixed together with PR7's `pac resume`**, not independently — see above.
+- **`agents/_react.py::_best_effort_tool_name`'s `"unknown_tool"` fallback is now
+  universal** across every multi-tool worker in production config (confirmed: any worker
+  bound to `load_pa_tools()`'s 3 real MCP tools always has `len(tools) > 1`). Promoted from
+  "PR6 watch-out" to **required PR6 work** — NFR-07's tool-failure evidence is worthless
+  without real per-tool attribution.
+- **`decision_draft` only writes memory on `disposition == "deny"`** — approve/
+  refer_clinical_review determinations are persisted nowhere, leaving the majority
+  disposition path with no long-term memory trace (weakens AC-06/07's cross-session
+  story). Named PR6/PR8 follow-up: a `routine`-importance write on every disposition.
+- **`state["messages"]` is still never written by any worker** — `summarize`'s
+  `SummarizationNode` (NFR-08) runs on an empty thread on every real turn; the mechanism
+  and its PR5a evidence are genuine, but it's inert in the actual system. Real design
+  decision (worker-authored messages could affect prompt construction elsewhere), not a
+  quick fix — still open, not yet assigned to a PR.
+- (from PR3, **now done**) the `(RagIndexUnavailable, CorporaUnavailable)` except-clause
+  widening — PR5b Task 1 fixed it at the source, in `rag/tool.py` itself, rather than in
+  the worker. No longer a forward watch-out.
+- `mcp_tools` is currently the full unfiltered list shared across
+  `intake`/`benefit_check`/`medical_necessity` (each worker's model technically has every
+  MCP tool bound, constrained only by its own system prompt's silence on the others) —
+  accepted as a first approach; revisit if a test ever shows a worker mis-calling an
+  out-of-scope tool.
+- AC-05's committed evidence state is hand-seeded (the hop-cap trick), not reached via a
+  case that organically hits `human_review` — Task 7 later produced exactly such a case
+  (the ambiguous run); rebuilding AC-05's evidence on it would be a strictly stronger
+  proof and would retire the `supervisor_hops` reset hack from the evidence path.
+  Opportunistic, not urgent.
+
+---
+
+## NEXT: PR6 — Reflection & Self-Healing  (branch `feat/reflection`, off `main` @ `5b0068c`)
+
+**Scope (design.md §3.5/§3.6; AC-12, NFR-07):**
+- `reflection.py` — the dual-trigger reflection/self-healing loop: tool failure (catch,
+  append `ToolFailure`, `needs_replan=True`, re-route to the same worker while
+  `replan_count < MAX_REPLANS`, else `human_review`) and low confidence
+  (`medical_necessity` confidence `< tau` or `criteria_status="indeterminate"` →
+  supervisor loops back with a hint; `decision_draft` self-critique failure → back to
+  `medical_necessity`).
+- `tenacity` retries (exponential backoff, max 3) on transient tool errors;
+  `asyncio.wait_for` timeouts per tool call; model-call failure → one retry on the lite
+  model → else `human_review`. **Already empirically verified this session** (library
+  facts, not yet applied): `tenacity.retry(...)` works transparently on `async def`
+  functions (auto-selects `AsyncRetrying`, no separate import needed);
+  `asyncio.TimeoutError is TimeoutError` in this Python version; `asyncio.wait_for`
+  genuinely cancels the wrapped coroutine on timeout (verified a coroutine observes
+  `CancelledError` and can clean up) — safe to wrap `run_worker_react(...)` calls,
+  including mid-MCP-subprocess-call ones.
+- Enforce `replan_count`/`MAX_REPLANS` — currently `replan_count` is never incremented
+  anywhere in the codebase; only `supervisor_hops`/`MAX_HOPS` is a live backstop.
+- **Must also fix, together, not separately** (see PR5b's parked items above):
+  `supervisor_hops` never resets after a real resume (now a live risk once PR7's
+  `pac resume` exists, since the recursion-limit fix makes the hop cap reachable), and
+  `_best_effort_tool_name`'s universal `"unknown_tool"` fallback (real per-tool
+  attribution needed for AC-12's tool-failure evidence to mean anything).
+- Evidence: `traces/reflection_tool_failure.json`, `traces/reflection_low_confidence.json`.
 
 **Resume:** `cd D:/Aru/NYU/Virtusa/prior-auth-copilot`, confirm `git log --first-parent`
-shows `Merge PR5a`, then write `docs/implementation-plan-pr5b.md` and run the SDD cycle.
-Prior rulings are in `.superpowers/sdd/implementation-plan-pr{1,2,3,4}/progress.md`
-(PR5a's own workspace was deleted per the SDD skill's finish step — its rulings are
-summarized above and in the `Merge PR5a` commit message).
+shows `Merge PR5b`, then write `docs/implementation-plan-pr6.md` and run the SDD cycle.
+Prior rulings are in `.superpowers/sdd/implementation-plan-pr{1,2,3,4}/progress.md` (PR5a
+and PR5b's own workspaces were deleted per the SDD skill's finish step — their rulings are
+summarized in the sections above and in the `Merge PR5a`/`Merge PR5b` commit messages).
