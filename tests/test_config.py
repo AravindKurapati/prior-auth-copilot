@@ -12,9 +12,11 @@ def config_dir(tmp_path: Path) -> Path:
         "agent: gemini-flash-latest\n"
         "summarizer: gemini-flash-lite-latest\n"
         "temperature_agent: 0.0\n"
+        "agent_lite: gemini-flash-lite-latest\n"
     )
     (tmp_path / "routing.yaml").write_text(
         "max_replans: 2\nmax_hops: 12\nrecursion_limit: 40\ntau: 0.55\n"
+        "worker_timeout_seconds: 30\nmax_tool_retries: 3\n"
     )
     (tmp_path / "memory.yaml").write_text(
         "namespaces:\n"
@@ -31,8 +33,11 @@ def test_loads_yaml_values(config_dir: Path, monkeypatch):
     assert isinstance(s, Settings)
     assert s.model_agent == "gemini-flash-latest"
     assert s.model_summarizer == "gemini-flash-lite-latest"
+    assert s.model_agent_lite == "gemini-flash-lite-latest"
     assert s.max_replans == 2
     assert s.tau == 0.55
+    assert s.worker_timeout_seconds == 30.0
+    assert s.max_tool_retries == 3
     assert s.memory.importance_weights["critical"] == 3.0
     assert s.memory.namespaces["episodic"].ttl_days == 90
     assert s.memory.namespaces["episodic"].cap == 50
@@ -89,6 +94,54 @@ def test_existing_google_api_key_is_not_overwritten(config_dir: Path, monkeypatc
     monkeypatch.setenv("GOOGLE_API_KEY", "google-value-kept")
     load_settings(config_dir=config_dir, env_file=None)
     assert os.environ["GOOGLE_API_KEY"] == "google-value-kept"
+
+
+def test_worker_timeout_seconds_loads_from_yaml(config_dir: Path, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    s = load_settings(config_dir=config_dir, env_file=None)
+    assert s.worker_timeout_seconds == 30.0
+
+
+def test_worker_timeout_seconds_env_override(config_dir: Path, monkeypatch):
+    monkeypatch.setenv("PA_WORKER_TIMEOUT_SECONDS", "45.5")
+    s = load_settings(config_dir=config_dir, env_file=None)
+    assert s.worker_timeout_seconds == 45.5
+
+
+def test_max_tool_retries_loads_from_yaml(config_dir: Path, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    s = load_settings(config_dir=config_dir, env_file=None)
+    assert s.max_tool_retries == 3
+
+
+def test_max_tool_retries_env_override(config_dir: Path, monkeypatch):
+    monkeypatch.setenv("PA_MAX_TOOL_RETRIES", "5")
+    s = load_settings(config_dir=config_dir, env_file=None)
+    assert s.max_tool_retries == 5
+
+
+def test_model_agent_lite_loads_from_yaml(config_dir: Path, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    s = load_settings(config_dir=config_dir, env_file=None)
+    assert s.model_agent_lite == "gemini-flash-lite-latest"
+
+
+def test_model_agent_lite_env_override(config_dir: Path, monkeypatch):
+    monkeypatch.setenv("PA_MODEL_AGENT_LITE", "custom-lite-model")
+    s = load_settings(config_dir=config_dir, env_file=None)
+    assert s.model_agent_lite == "custom-lite-model"
+
+
+def test_model_agent_lite_defaults_when_yaml_absent(config_dir: Path, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    # Remove agent_lite from models.yaml
+    (config_dir / "models.yaml").write_text(
+        "agent: gemini-flash-latest\n"
+        "summarizer: gemini-flash-lite-latest\n"
+        "temperature_agent: 0.0\n"
+    )
+    s = load_settings(config_dir=config_dir, env_file=None)
+    assert s.model_agent_lite == "gemini-flash-lite-latest"
 
 
 def test_frozen(config_dir: Path):

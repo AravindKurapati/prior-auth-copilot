@@ -2,6 +2,8 @@
 agent: gemini-flash-latest
 summarizer: gemini-flash-lite-latest
 temperature_agent: 0.0
+agent_lite: gemini-flash-lite-latest   # fallback model for one retry after a
+                                        # structured-output validation failure (NFR-07)
 
 # Local CPU sentence-transformers model for the agentic-RAG index (PR3).
 embedding_model: BAAI/bge-small-en-v1.5
