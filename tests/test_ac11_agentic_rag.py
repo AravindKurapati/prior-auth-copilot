@@ -177,3 +177,72 @@ def test_ac11_decision_evidence_committed():
     body = md.read_text(encoding="utf-8")
     assert "indeterminate" in body and "excluded" in body
     assert "search_clinical_guidance" in body
+
+
+# --- Task 7: full in-graph evidence ------------------------------------------
+# Everything above this line proves the tool-level predicate only (PR3). These
+# two tests prove the *agent* decides inside the fully compiled graph (all 5
+# workers + supervisor via `pa_copilot.graph.make_graph`) -- not just that the
+# bare tool function gates correctly when called directly.
+
+import pytest  # noqa: E402
+from langgraph.checkpoint.memory import InMemorySaver  # noqa: E402
+
+from _full_case import (  # noqa: E402
+    FAKE_MCP_TOOLS,
+    build_ambiguous_case,
+    build_clear_cut_case,
+    fake_rag_embedder,
+    make_rag_spy,
+    new_initial_state,
+    stub_summarizer,
+)
+from pa_copilot.graph import make_graph  # noqa: E402
+
+
+@pytest.mark.asyncio
+async def test_ac11_full_graph_calls_rag_tool_for_indeterminate_necessity(memory_store, monkeypatch):
+    """Ambiguous case: criteria_check comes back indeterminate, so the agent
+    (per its own system prompt, not a hard code gate) chooses to call
+    `search_clinical_guidance` inside the compiled graph -- proven by a spy
+    wrapping the REAL tool (not a fake), counting real invocations."""
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        "pa_copilot.agents.medical_necessity.search_clinical_guidance", make_rag_spy(calls)
+    )
+    stub_summarizer(monkeypatch)
+    case = build_ambiguous_case()
+    graph = await make_graph(
+        store=memory_store, checkpointer=InMemorySaver(), mcp_tools=FAKE_MCP_TOOLS, model=case.model
+    )
+    thread = {"configurable": {"thread_id": case.case_id}}
+
+    with fake_rag_embedder():
+        result = await graph.ainvoke(new_initial_state(case.case_id), config=thread)
+
+    assert len(calls) == 1, f"expected exactly one search_clinical_guidance call, got {calls}"
+    assert calls[0]["service_code"] == "72148"
+    assert "__interrupt__" in result  # routed to human_review, per AC-03
+
+
+@pytest.mark.asyncio
+async def test_ac11_full_graph_skips_rag_tool_for_clear_cut_necessity(memory_store, monkeypatch):
+    """Clear-cut case: criteria_check comes back `met`/no unmet requirements,
+    so the agent does NOT call `search_clinical_guidance` at all -- proven by
+    the same real-tool spy recording zero calls, inside the same compiled
+    graph the previous test used (only the scripted state/case differs)."""
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        "pa_copilot.agents.medical_necessity.search_clinical_guidance", make_rag_spy(calls)
+    )
+    stub_summarizer(monkeypatch)
+    case = build_clear_cut_case()
+    graph = await make_graph(
+        store=memory_store, checkpointer=InMemorySaver(), mcp_tools=FAKE_MCP_TOOLS, model=case.model
+    )
+    thread = {"configurable": {"thread_id": case.case_id}}
+
+    result = await graph.ainvoke(new_initial_state(case.case_id), config=thread)
+
+    assert calls == []
+    assert result["decision"].disposition == "approve"

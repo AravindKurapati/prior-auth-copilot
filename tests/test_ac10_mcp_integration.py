@@ -133,6 +133,69 @@ async def test_ac10_default_client_still_sees_production_corpora():
     assert payload["policy_id"] == "PA-MRI-LUMBAR"
 
 
+async def test_ac10_medical_necessity_worker_invokes_real_criteria_check_in_graph():
+    """AC-10 full in-graph evidence (Task 7): `build_medical_necessity_node` --
+    the exact factory `graph.py` wires into the compiled StateGraph -- given
+    REAL MCP tools loaded via `load_pa_tools(session=...)` (not a fake, per the
+    task brief) actually dispatches `criteria_check` through the live `pa` MCP
+    subprocess. Proven by capturing the ToolMessage the subprocess produced and
+    asserting its content carries the real synthetic corpus's actual values
+    (`policy_id`/`status`) -- something only the live server, not this test's
+    fake LLM, could have put there -- rather than merely asserting the node
+    didn't raise."""
+    from langchain_core.messages import AIMessage
+
+    from _fakes import FakeToolCallingModel, ai_tool_call
+    from pa_copilot.agents.medical_necessity import build_medical_necessity_node
+    from pa_copilot.schemas import BenefitResult, NecessityAssessment, PARequest
+
+    captured_generations: list[list] = []
+
+    class CapturingModel(FakeToolCallingModel):
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            captured_generations.append(list(messages))
+            return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+    request = PARequest(
+        member_id="M100001", service_code="72148", diagnosis_codes=["M54.16"],
+        requested_units=1, place_of_service="outpatient", provider_npi="1093817465",
+        clinical_summary="MRI lumbar spine, 8 weeks PT, persistent radicular pain",
+        missing_fields=[],
+    )
+    benefit = BenefitResult(
+        covered=True, plan_id="PLAN-GOLD-PPO", requires_pa=True, network_status="in_network"
+    )
+    expected = NecessityAssessment(
+        criteria_status="met", policy_id="PA-MRI-LUMBAR", citations=[], unmet_requirements=[],
+        confidence=0.85, rationale="8 weeks PT + persistent radicular pain documented; not excluded",
+    )
+    model = CapturingModel(
+        script=[
+            ai_tool_call("criteria_check", {"service_code": "72148", "diagnosis_codes": ["M54.16"]}),
+            AIMessage(content="assessed"),
+        ],
+        structured_responses=[expected],
+    )
+
+    async with pa_session() as session:
+        tools = await load_pa_tools(session=session)
+        node = build_medical_necessity_node(mcp_tools=tools, model=model)
+        update = await node({"request": request, "benefit": benefit, "retrieved_criteria": []})
+
+    assert update["necessity"] == expected
+
+    tool_messages = [
+        m for turn in captured_generations for m in turn if type(m).__name__ == "ToolMessage"
+    ]
+    assert tool_messages, "expected a ToolMessage from the real criteria_check MCP round trip"
+    payloads = [
+        json.loads(m.content) if isinstance(m.content, str) else m.content for m in tool_messages
+    ]
+    assert any(
+        p.get("policy_id") == "PA-MRI-LUMBAR" and p.get("status") == "indeterminate" for p in payloads
+    ), f"no ToolMessage carried the real corpus result: {payloads}"
+
+
 @pytest.mark.slow
 @pytest.mark.skipif(not os.environ.get("GEMINI_API_KEY"), reason="needs GEMINI_API_KEY")
 async def test_ac10_gemini_agent_invokes_mcp_tool_transcript():
