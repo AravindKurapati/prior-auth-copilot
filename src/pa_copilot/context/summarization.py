@@ -10,9 +10,9 @@ reserved for this.
 from __future__ import annotations
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langmem.short_term import SummarizationNode
 
+from pa_copilot.agents._react import get_agent_model
 from pa_copilot.config import get_settings
 from pa_copilot.state import PACaseState
 
@@ -24,16 +24,14 @@ _node: SummarizationNode | None = None
 
 
 def _default_model() -> BaseChatModel:
-    """Ordering wrinkle (task brief, PR5a plan): this tiny model-constructor
-    piece is implemented here, ahead of Task 6's `agents/_react.py`, because
-    NFR-08's evidence doesn't depend on the ReAct loop at all -- only on this
-    two-line function. A later task moves this logic into
-    `agents/_react.py::get_agent_model()` and this module re-imports it from
-    there instead of duplicating it. `settings.model_summarizer` is
-    deliberately the cheaper model (`gemini-flash-lite-latest` per design.md
-    §1), distinct from the agent model workers use."""
+    """`settings.model_summarizer` is deliberately the cheaper model
+    (`gemini-flash-lite-latest` per design.md §1), distinct from the agent
+    model workers use -- so this passes `model_name` explicitly rather than
+    taking `get_agent_model()`'s `.model_agent` default. Constructor logic
+    itself lives in `agents/_react.py::get_agent_model()` (Task 6); this is a
+    thin re-import, not a duplicate, per that task's ordering note."""
     s = get_settings()
-    return ChatGoogleGenerativeAI(model=s.model_summarizer, temperature=s.temperature_agent)
+    return get_agent_model(model_name=s.model_summarizer, settings=s)
 
 
 def build_summarization_node(
