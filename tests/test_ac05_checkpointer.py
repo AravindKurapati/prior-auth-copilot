@@ -15,10 +15,15 @@ up front, and the resume half passes `Command(resume=..., update=
 {"supervisor_hops": 0})`: `Command.update` is applied before the graph
 re-enters the interrupted node (confirmed empirically this task), so the
 supervisor's second turn no longer trips the hop cap and instead falls through
-to the "decision finished" rule, routing straight to FINISH/END. Plain
-`Command(resume=...)` alone (no `update=`) was confirmed empirically to
-reproduce an infinite interrupt loop instead -- the hop-cap guardrail simply
-fires again on every resumed turn.
+to the "decision finished" rule, routing straight to FINISH/END. Before PR6,
+plain `Command(resume=...)` alone (no `update=`) reproduced an infinite
+interrupt loop instead -- the hop-cap guardrail simply fired again on every
+resumed turn. PR6 Task 4 closed that gap at the source: `human_review.py`'s
+node now resets `supervisor_hops`/`replan_count` to 0 itself on resume, so a
+manual `update=` is no longer required (see
+`test_resume_completes_without_a_manual_hop_reset` below) -- the explicit
+`update={"supervisor_hops": 0}` this test still passes is now redundant with
+that automatic reset, not load-bearing, and kept only because both agree.
 """
 
 import pytest
@@ -103,11 +108,18 @@ async def test_interrupt_then_resume_from_a_fresh_graph_object(
 
 
 @pytest.mark.asyncio
-async def test_resuming_without_the_hop_reset_reinterrupts(tmp_path, fake_embedder, monkeypatch):
-    """Documents *why* the resume half needs `update={"supervisor_hops": 0}`:
-    the hop-cap guardrail is sticky (hops only ever increase), so resuming with
-    a bare `Command(resume=...)` re-triggers the same guardrail on the next
-    supervisor turn and the case pauses again instead of completing."""
+async def test_resume_completes_without_a_manual_hop_reset(tmp_path, fake_embedder, monkeypatch):
+    """PR6 Task 4: `human_review.py`'s node now resets `supervisor_hops`/
+    `replan_count` to 0 itself on resume (a human just intervened -- fresh
+    attempt budget), closing the gap this test used to pin (formerly
+    `test_resuming_without_the_hop_reset_reinterrupts`, which asserted a bare
+    `Command(resume=...)` with no manual `update=` re-triggered the sticky
+    hop-cap guardrail forever). The other test in this file
+    (`test_interrupt_then_resume_from_a_fresh_graph_object`) still passes
+    `update={"supervisor_hops": 0}` explicitly -- now redundant with the
+    automatic reset (both set it to 0), not wrong, so left as-is. This test
+    proves the reset also works with NO manual update at all, i.e. the fix
+    lives in the node, not in every caller."""
     import pa_copilot.context.summarization as summarization_mod
     from pa_copilot.context.summarization import build_summarization_node
 
@@ -151,5 +163,16 @@ async def test_resuming_without_the_hop_reset_reinterrupts(tmp_path, fake_embedd
             store=store, checkpointer=saver2, mcp_tools=[], model=FakeToolCallingModel()
         )
         result = await graph2.ainvoke(Command(resume="approved"), config=thread)
-        assert "__interrupt__" in result  # re-interrupted, not completed
+        assert "__interrupt__" not in result  # completes: human_review's own reset
+        assert result["next"] == "FINISH"
+        # human_review resets supervisor_hops to 0, but the graph doesn't stop
+        # there -- it continues through summarize -> supervisor, and
+        # build_supervisor_node increments supervisor_hops by 1 on EVERY turn
+        # (that's how the hop cap counts turns at all). So the final state
+        # after one post-resume supervisor turn is 0 + 1 = 1, not 0 -- this is
+        # the reset actually working (without it, that one turn would have
+        # incremented from max_hops to max_hops + 1, immediately re-tripping
+        # the cap instead of reaching "decision finished" -> FINISH).
+        assert result["supervisor_hops"] == 1
+        assert result["replan_count"] == 0
         await conn2.close()

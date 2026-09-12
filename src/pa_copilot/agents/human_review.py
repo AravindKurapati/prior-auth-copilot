@@ -22,6 +22,13 @@ def build_human_review_node() -> Callable[[PACaseState], Awaitable[dict]]:
             "reason": "human review required",
         }
         resume_value = interrupt(payload)
-        return write_working_memory(state, "human_review_resume_value", resume_value)
+        update = write_working_memory(state, "human_review_resume_value", resume_value)
+        # A human just intervened -- treat the resumed leg of the case as a fresh
+        # attempt budget (PR5b's carried-forward item, promoted to required PR6 work:
+        # supervisor_hops never reset on resume, a live risk now that the recursion-limit
+        # fix (PR5b) makes the MAX_HOPS cap actually reachable in production).
+        update["supervisor_hops"] = 0
+        update["replan_count"] = 0
+        return update
 
     return _node
