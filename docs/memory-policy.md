@@ -198,29 +198,26 @@ natural next step for the memory subsystem.
 
 ---
 
-## 10. Known limitation carried into PR5 (not fixed here)
+## 10. Async write gap — RESOLVED in PR5a
 
-LangMem's memory tools (`build_memory_tools`) only work through **synchronous** `.invoke()`
-against `PolicyStore`. Calling `.ainvoke()` raises `NotImplementedError` — but not for the
-reason this doc used to claim. Verified directly against the installed `langmem`/`langgraph`
-source: LangMem's async manage-memory path **does** call `await store.aput(...)` directly —
-it reaches `PolicyStore.aput` just fine. The failure is one level deeper.
-`BaseStore.aput`'s own implementation unconditionally does `await self.abatch([PutOp(...)])`,
-and `SqliteStore.abatch` — langgraph's own override, not first-party code in this repo —
-unconditionally raises `NotImplementedError` for **any** async batch operation, regardless of
-who calls it.
+**Update (PR5a):** the limitation this section originally described is fixed.
+`PolicyStore.abatch` (`src/pa_copilot/memory/store.py`) now delegates to
+`asyncio.to_thread(self.batch, list(ops))`, so `BaseStore.aput`'s `await
+self.abatch([PutOp(...)])` and `BaseStore.asearch`'s `await self.abatch([SearchOp(...)])`
+both resolve instead of raising. Verified end-to-end: `agents/intake.py`'s bound
+member-namespace `search_memory` tool is invoked through `create_react_agent`'s async
+`ToolNode` dispatch — the exact path this section originally said could never work — and
+succeeds (`tests/test_agent_intake.py::test_intake_search_memory_tool_succeeds_end_to_end`,
+`::test_intake_search_memory_tool_uses_real_member_id_namespace`). PR4's existing
+put/aput policy injection (TTL, importance stamping, cap enforcement) is unaffected: those
+hooks live in `PolicyStore.put`/`aput` itself, which still run their `_prep`/`enforce_cap`
+logic around the call into (a)batch — the new override only supplies the missing execution
+path, it doesn't bypass the policy layer.
 
-The corrected, stronger conclusion: `PolicyStore.aput` cannot succeed from **any** async
-caller — not just LangMem's tool, but also a direct first-party `await store.aput(...)`
-anywhere in future code (e.g. PR5's own worker code, if it ever awaits a store write
-directly). This is not "LangMem specifically can't use async"; it's "this store has no
-working async write path at all, period, until something gives `PolicyStore` (or the
-underlying `SqliteStore`) a real `abatch` override." This is a firm, verified fact, not an
-unproven suspicion: `PolicyStore.aput` **will** raise `NotImplementedError`, always.
-
-PR5's workers are async ReAct loops. If any worker calls these memory tools via `ainvoke`,
-or directly awaits `store.aput(...)`, it will hit `NotImplementedError`. Candidate
-resolutions for PR5 — call the tools synchronously from within the async worker, wrap them
-in a sync-to-async adapter, or (the one to keep front and center) **give `PolicyStore` a
-real `abatch` override** so `aput` actually has a working path. Not a solved problem in this
-PR.
+Original analysis, kept for context: LangMem's memory tools (`build_memory_tools`) used to
+only work through **synchronous** `.invoke()` against `PolicyStore` — `.ainvoke()` raised
+`NotImplementedError` because `BaseStore.aput`/`asearch` unconditionally call `await
+self.abatch(...)`, and `SqliteStore.abatch` (langgraph's own override, not first-party code)
+unconditionally raised `NotImplementedError` for any async batch operation, regardless of
+caller. The fix was exactly the one this section already named as the one "to keep front
+and center": give `PolicyStore` a real `abatch` override.
