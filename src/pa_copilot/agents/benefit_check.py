@@ -4,14 +4,18 @@ already-validated PARequest fields."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Awaitable, Callable
 
 from langchain_core.messages import HumanMessage
 
-from pa_copilot.agents._react import WorkerToolError, get_agent_model, run_worker_react
+from pa_copilot.agents._react import (
+    WorkerToolError,
+    get_agent_model,
+    run_worker_react,
+    tool_failure_update,
+)
 from pa_copilot.context.assembly import select_for
-from pa_copilot.schemas import BenefitResult, ToolFailure
+from pa_copilot.schemas import BenefitResult
 from pa_copilot.state import PACaseState
 
 _BENEFIT_SYSTEM_PROMPT = (
@@ -28,6 +32,10 @@ def build_benefit_check_node(
 
     async def _node(state: PACaseState) -> dict:
         view = select_for("benefit_check", state)
+        # request is guaranteed non-None here: supervisor.hard_route routes
+        # request=None to intake, never benefit_check (see hard_route's
+        # request-is-None guardrail in supervisor.py) -- no None-guard needed
+        # on the dereferences below.
         request = view["request"]
         prompt = HumanMessage(
             content=(
@@ -44,11 +52,7 @@ def build_benefit_check_node(
                 response_format=BenefitResult,
             )
         except WorkerToolError as exc:
-            failure = ToolFailure(
-                tool=exc.tool, error=exc.error, attempt=exc.attempt,
-                ts=datetime.now(timezone.utc).isoformat(),
-            )
-            return {"tool_failures": [failure], "needs_replan": True}
+            return tool_failure_update(exc)
 
         return {"benefit": benefit}
 

@@ -11,7 +11,7 @@ from pa_copilot.memory import working
 from pa_copilot.state import PACaseState
 
 _SELECTORS: dict[str, tuple[str, ...]] = {
-    "intake": ("raw_provider_text", "quarantine_ref", "member_id"),
+    "intake": ("raw_provider_text", "quarantine_ref", "member_id", "case_id"),
     "benefit_check": ("request",),
     "medical_necessity": ("request", "benefit", "retrieved_criteria"),
     "decision_draft": ("request", "benefit", "necessity"),

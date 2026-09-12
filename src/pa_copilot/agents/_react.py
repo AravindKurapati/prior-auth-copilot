@@ -17,15 +17,18 @@ or "unknown_tool", per the task brief."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from langchain_core.messages import AnyMessage
 from langchain_core.tools import BaseTool
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.errors import GraphRecursionError
 from langgraph.prebuilt import ToolNode, create_react_agent
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from pa_copilot.config import Settings, get_settings
+from pa_copilot.schemas import ToolFailure
 
 
 def get_agent_model(
@@ -49,6 +52,37 @@ class WorkerToolError(Exception):
         self.attempt = attempt
 
 
+class WorkerOutputError(Exception):
+    """The post-loop structured-output call failed validation (or the model
+    otherwise couldn't produce a valid response_format instance) -- a
+    different remediation path from a tool failure (design.md: retry, not
+    re-route-and-blame-a-tool). Raised when create_react_agent's internal
+    ``model.with_structured_output(response_format)`` call -- made once the
+    tool-calling loop has no more tool calls -- raises pydantic.ValidationError.
+    Callers in THIS branch (intake.py, benefit_check.py) don't yet catch this
+    distinctly; it propagates uncaught from those two workers until PR6's
+    reflection.py builds the retry-vs-reroute logic design.md specifies."""
+
+    def __init__(self, *, error: str):
+        super().__init__(error)
+        self.error = error
+
+
+class WorkerRecursionError(Exception):
+    """The ReAct loop hit its recursion_limit without the model ever settling
+    on a final (no-more-tool-calls) turn -- a distinct failure mode from both
+    a single tool's own exception (WorkerToolError) and a structured-output
+    validation failure (WorkerOutputError): no specific tool is to blame, and
+    nothing was "invalid" -- the loop simply didn't converge in time. Kept
+    separate so it is never silently mislabeled as a tool-specific failure;
+    remediation semantics (retry with a tighter loop vs. reroute) are PR6's
+    reflection.py's concern, not this module's."""
+
+    def __init__(self, *, error: str):
+        super().__init__(error)
+        self.error = error
+
+
 async def run_worker_react(
     model,
     tools: list[BaseTool],
@@ -68,9 +102,34 @@ async def run_worker_react(
     run_config = {**(config or {}), "recursion_limit": recursion_limit}
     try:
         result = await agent.ainvoke({"messages": messages}, config=run_config)
-    except Exception as exc:  # noqa: BLE001 -- normalize any tool/model failure for callers
+    except ValidationError as exc:
+        # create_react_agent's separate post-loop
+        # model.with_structured_output(response_format) call failed to
+        # produce a valid instance -- caught BEFORE the broad `except
+        # Exception` below so this is never mislabeled as a tool failure
+        # (WorkerToolError(tool="unknown_tool", ...)). Must come before
+        # GraphRecursionError/Exception since it is unrelated to either.
+        raise WorkerOutputError(error=str(exc)) from exc
+    except GraphRecursionError as exc:
+        # Hit recursion_limit -- not a specific tool's fault either; keep it
+        # out of WorkerToolError so callers don't misattribute a bogus tool.
+        raise WorkerRecursionError(error=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 -- normalize any remaining tool/model failure
         raise WorkerToolError(tool=_best_effort_tool_name(tools, exc), error=str(exc)) from exc
     return result["messages"], result["structured_response"]
+
+
+def tool_failure_update(exc: WorkerToolError) -> dict:
+    """The state-update every worker (intake.py, benefit_check.py, ...) builds
+    identically from a caught WorkerToolError -- extracted here so there is one
+    implementation instead of one copy per worker module."""
+    failure = ToolFailure(
+        tool=exc.tool,
+        error=exc.error,
+        attempt=exc.attempt,
+        ts=datetime.now(timezone.utc).isoformat(),
+    )
+    return {"tool_failures": [failure], "needs_replan": True}
 
 
 def _best_effort_tool_name(tools: list[BaseTool], exc: Exception) -> str:

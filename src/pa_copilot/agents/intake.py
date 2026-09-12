@@ -7,15 +7,19 @@ as a PR5b/PR8 follow-up, not half-built here."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Awaitable, Callable
 
-from pa_copilot.agents._react import WorkerToolError, get_agent_model, run_worker_react
+from pa_copilot.agents._react import (
+    WorkerToolError,
+    get_agent_model,
+    run_worker_react,
+    tool_failure_update,
+)
 from pa_copilot.context.assembly import select_for, write_working_memory
 from pa_copilot.context.quarantine import build_quarantined_message, make_quarantine_ref
 from pa_copilot.memory.store import PolicyStore
 from pa_copilot.memory.tools import build_memory_tools
-from pa_copilot.schemas import PARequest, ToolFailure
+from pa_copilot.schemas import PARequest
 from pa_copilot.state import PACaseState
 
 _INTAKE_SYSTEM_PROMPT = (
@@ -47,15 +51,11 @@ def build_intake_node(
                 config={"configurable": {"member_id": view["member_id"]}},
             )
         except WorkerToolError as exc:
-            failure = ToolFailure(
-                tool=exc.tool, error=exc.error, attempt=exc.attempt,
-                ts=datetime.now(timezone.utc).isoformat(),
-            )
-            return {"tool_failures": [failure], "needs_replan": True}
+            return tool_failure_update(exc)
 
         update = {
             "request": request,
-            "quarantine_ref": make_quarantine_ref(state["case_id"]),
+            "quarantine_ref": make_quarantine_ref(view["case_id"]),
         }
         update.update(write_working_memory(state, "intake_completed", True))
         return update

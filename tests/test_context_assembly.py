@@ -8,6 +8,7 @@ def _state(**kw):
         "raw_provider_text": "raw text",
         "quarantine_ref": "quarantine:c1",
         "member_id": "M1",
+        "case_id": "c1",
         "request": {"service_code": "72148"},
         "benefit": {"covered": True},
         "necessity": {"criteria_status": "met"},
@@ -19,7 +20,7 @@ def _state(**kw):
 
 def test_select_for_intake_excludes_downstream_fields():
     got = select_for("intake", _state())
-    assert set(got) == {"raw_provider_text", "quarantine_ref", "member_id"}
+    assert set(got) == {"raw_provider_text", "quarantine_ref", "member_id", "case_id"}
 
 
 def test_select_for_benefit_check_is_request_only():
