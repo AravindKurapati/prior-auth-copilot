@@ -11,12 +11,14 @@ from pa_copilot.reflection import attribute_tool_errors
 from pa_copilot.rag.tool import search_clinical_guidance
 
 
-def test_wraps_sync_tool_and_attributes_failure(monkeypatch):
+def test_wraps_sync_tool_and_attributes_failure():
     def boom(*a, **kw):
         raise RuntimeError("index down")
 
-    monkeypatch.setattr(search_clinical_guidance, "func", boom)
-    (wrapped,) = attribute_tool_errors([search_clinical_guidance])
+    # Create a throwaway copy of the tool to avoid mutating the shared production singleton.
+    # model_copy() is available on Pydantic-backed StructuredTool instances.
+    tool_copy = search_clinical_guidance.model_copy(update={"func": boom})
+    (wrapped,) = attribute_tool_errors([tool_copy])
     with pytest.raises(AttributedToolError) as exc_info:
         wrapped.invoke({"query": "x"})
     assert exc_info.value.tool == "search_clinical_guidance"

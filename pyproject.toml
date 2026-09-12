@@ -72,6 +72,13 @@ filterwarnings = [
     # "has been moved to.*langchain\.agents") to avoid shadowing the pre-existing
     # trustcall ignore above (which handles different langgraph deprecations).
     "ignore:.*has been moved to.*langchain\\.agents.*:langgraph.warnings.LangGraphDeprecatedSinceV10",
+    # pytest-asyncio (0.24+) + asyncio event loop cleanup on Windows: ProactorEventLoop
+    # destructor emits unclosed event loop ResourceWarnings during test isolation
+    # teardown. This occurs after all test execution completes (in __del__ finalizers
+    # run by Python's garbage collector), outside pytest's normal test phase, and
+    # does not affect test results. Category + module scoped so any ResourceWarning
+    # from elsewhere still fails the suite.
+    "ignore::ResourceWarning:asyncio",
 ]
 markers = ["slow: needs a model download or a live Gemini API key"]
 
