@@ -48,6 +48,17 @@ def _dump_model(obj) -> dict | None:
     return obj.model_dump() if obj is not None else None
 
 
+def _dump_route_step(step) -> dict:
+    """`RouteStep.model_dump()` minus `ts` -- `supervisor.py` stamps `ts` with
+    `datetime.now(timezone.utc).isoformat()`, real wall-clock time, which would
+    make every committed trace file under `traces/` non-byte-stable across
+    regenerations (this project's committed-evidence convention, used by every
+    other file in `traces/`, is "re-run the script, `git status` shows
+    nothing changed"). Everything else in a `RouteStep` (`from_node`, `to_node`,
+    `reason`) is fully deterministic given a scripted case."""
+    return {k: v for k, v in step.model_dump().items() if k != "ts"}
+
+
 async def _run_clear_cut() -> dict:
     from langgraph.checkpoint.memory import InMemorySaver  # noqa: PLC0415
 
@@ -125,7 +136,7 @@ def _route_history_doc(case_id: str, result: dict) -> dict:
     return {
         "schema_version": TRACE_SCHEMA_VERSION,
         "case_id": case_id,
-        "route_history": [step.model_dump() for step in result.get("route_history") or []],
+        "route_history": [_dump_route_step(step) for step in result.get("route_history") or []],
         "final_next": result.get("next"),
         "paused_for_human_review": "__interrupt__" in result,
     }
@@ -147,14 +158,16 @@ async def main() -> None:
     run_full_case_doc = {
         "schema_version": TRACE_SCHEMA_VERSION,
         "case_id": clearcut_result["case_id"],
-        "route_history": [step.model_dump() for step in clearcut_result["route_history"]],
+        "route_history": [_dump_route_step(step) for step in clearcut_result["route_history"]],
         "request": _dump_model(clearcut_result.get("request")),
         "benefit": _dump_model(clearcut_result.get("benefit")),
         "necessity": _dump_model(clearcut_result.get("necessity")),
         "decision": _dump_model(clearcut_result.get("decision")),
     }
     path_full = _write("run_full_case.json", run_full_case_doc)
-    path_clearcut = _write("route_clearcut.json", _route_history_doc("clearcut", clearcut_result))
+    path_clearcut = _write(
+        "route_clearcut.json", _route_history_doc(clearcut_result["case_id"], clearcut_result)
+    )
     print(f"wrote {path_full.relative_to(_REPO_ROOT).as_posix()}")
     print(f"wrote {path_clearcut.relative_to(_REPO_ROOT).as_posix()}")
     print(f"  clear-cut route_history workers visited: {sorted(visited)}")
@@ -164,7 +177,7 @@ async def main() -> None:
     assert "__interrupt__" in ambiguous_result, "ambiguous case unexpectedly did not pause"
     assert ambiguous_result.get("decision") is None
     path_ambiguous = _write(
-        "route_ambiguous.json", _route_history_doc("ambiguous", ambiguous_result)
+        "route_ambiguous.json", _route_history_doc(ambiguous_result["case_id"], ambiguous_result)
     )
     print(f"wrote {path_ambiguous.relative_to(_REPO_ROOT).as_posix()}")
     print(

@@ -5,32 +5,27 @@
     {
       "from_node": "supervisor",
       "to_node": "intake",
-      "reason": "deterministic guardrail -> intake",
-      "ts": "2026-09-12T04:39:05.958677+00:00"
+      "reason": "deterministic guardrail -> intake"
     },
     {
       "from_node": "supervisor",
       "to_node": "benefit_check",
-      "reason": "request captured; benefit still unknown",
-      "ts": "2026-09-12T04:39:06.026913+00:00"
+      "reason": "request captured; benefit still unknown"
     },
     {
       "from_node": "supervisor",
       "to_node": "medical_necessity",
-      "reason": "benefit confirmed; necessity still unknown",
-      "ts": "2026-09-12T04:39:06.057195+00:00"
+      "reason": "benefit confirmed; necessity still unknown"
     },
     {
       "from_node": "supervisor",
       "to_node": "decision_draft",
-      "reason": "necessity clearly met; ready to draft",
-      "ts": "2026-09-12T04:39:06.085746+00:00"
+      "reason": "necessity clearly met; ready to draft"
     },
     {
       "from_node": "supervisor",
       "to_node": "FINISH",
-      "reason": "deterministic guardrail -> FINISH",
-      "ts": "2026-09-12T04:39:06.102453+00:00"
+      "reason": "deterministic guardrail -> FINISH"
     }
   ],
   "request": {
