@@ -27,13 +27,22 @@ from pa_copilot.agents.decision_draft import build_decision_draft_node
 from pa_copilot.agents.human_review import build_human_review_node
 from pa_copilot.agents.intake import build_intake_node
 from pa_copilot.agents.medical_necessity import build_medical_necessity_node
+from pa_copilot.config import Settings, get_settings
 from pa_copilot.context.summarization import summarize
 from pa_copilot.memory.store import PolicyStore
 from pa_copilot.state import PACaseState
 from pa_copilot.supervisor import build_supervisor_node
 
 
-async def make_graph(*, store: PolicyStore, checkpointer, mcp_tools: list, model=None):
+async def make_graph(
+    *,
+    store: PolicyStore,
+    checkpointer,
+    mcp_tools: list,
+    model=None,
+    settings: Settings | None = None,
+):
+    s = settings or get_settings()
     graph = StateGraph(PACaseState)
 
     graph.add_node("summarize", summarize)
@@ -66,4 +75,14 @@ async def make_graph(*, store: PolicyStore, checkpointer, mcp_tools: list, model
     ):
         graph.add_edge(worker, "summarize")
 
-    return graph.compile(checkpointer=checkpointer, store=store)
+    compiled = graph.compile(checkpointer=checkpointer, store=store)
+    # settings.recursion_limit (config/routing.yaml, default 40) must be bound
+    # here so every future caller (pac submit/resume in PR7 included) gets it
+    # by default without remembering to pass recursion_limit themselves.
+    # Verified empirically (langgraph 1.0.1): CompiledStateGraph.with_config(...)
+    # returns a new CompiledStateGraph with the given config merged in as
+    # defaults for every future .invoke()/.ainvoke() call, and a run that
+    # exceeds it still raises GraphRecursionError -- exactly the mechanism
+    # LangGraph docs recommend for setting a default recursion_limit on a
+    # compiled graph.
+    return compiled.with_config({"recursion_limit": s.recursion_limit})

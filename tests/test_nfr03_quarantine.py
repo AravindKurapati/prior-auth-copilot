@@ -128,9 +128,12 @@ async def test_injection_canary_does_not_coerce_disposition_through_real_graph(m
         ],
         structured_responses=[
             EXPECTED_REQUEST,
-            RouterDecision(next="benefit_check", rationale="request captured; benefit still unknown"),
+            # No RouterDecision popped here for benefit_check/medical_necessity
+            # (PR5b final-review Fix B): hard_route's new benefit=None /
+            # necessity=None guardrails route there deterministically now,
+            # without calling the model -- see tests/_full_case.py's matching
+            # comment.
             EXPECTED_BENEFIT,
-            RouterDecision(next="medical_necessity", rationale="benefit confirmed; necessity still unknown"),
             necessity,
             RouterDecision(next="decision_draft", rationale="necessity not met; ready to draft"),
             decision,

@@ -43,6 +43,13 @@ def build_medical_necessity_node(
     tools = [*(mcp_tools or []), search_clinical_guidance]
 
     async def _node(state: PACaseState) -> dict:
+        if state.get("benefit") is None:
+            # Belt-and-suspenders (PR5b final-review Fix B, part 2): the
+            # supervisor's hard_route guardrail is what actually prevents this
+            # in practice (benefit-None routes to benefit_check before this
+            # node can ever run), but this node must not itself crash
+            # dereferencing a None benefit if it is ever reached out of order.
+            return {"needs_replan": True}
         view = select_for("medical_necessity", state)
         request, benefit = view["request"], view["benefit"]
         prompt = HumanMessage(

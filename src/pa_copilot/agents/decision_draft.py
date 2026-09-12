@@ -41,6 +41,13 @@ def build_decision_draft_node(
     *, store: PolicyStore, model=None
 ) -> Callable[[PACaseState], Awaitable[dict]]:
     async def _node(state: PACaseState) -> dict:
+        if state.get("necessity") is None:
+            # Belt-and-suspenders (PR5b final-review Fix B, part 2): the
+            # supervisor's hard_route guardrail is what actually prevents this
+            # in practice (necessity-None routes to medical_necessity before
+            # this node can ever run), but this node must not itself crash
+            # dereferencing a None necessity if it is ever reached out of order.
+            return {"needs_replan": True}
         view = select_for("decision_draft", state)
         request, benefit, necessity = view["request"], view["benefit"], view["necessity"]
         prompt = HumanMessage(

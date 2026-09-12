@@ -22,17 +22,20 @@ structured-output turns (``pa_copilot.graph.make_graph`` wires the same
 turns) are two independent FIFO queues, popped in the exact order the real
 graph will need them:
 
-Clear-cut turn order (5 supervisor turns; turns 1 and 5 are deterministic
-guardrails -- ``hard_route`` -- and consume NEITHER queue):
-    1. supervisor (hard route, request=None)      -> intake            [no pop]
+Clear-cut turn order (PR5b final-review Fix B added two more deterministic
+``hard_route`` guardrails -- benefit=None -> benefit_check and necessity=None
+-> medical_necessity -- so turns 3 and 5 below are now hard routes too,
+consuming NEITHER queue, not LLM calls; only the request->intake and
+decision->FINISH turns were hard-routed before this fix):
+    1. supervisor (hard route, request=None)        -> intake            [no pop]
     2. intake: script x2, structured x1 (PARequest)
-    3. supervisor (LLM)                             -> benefit_check    [structured x1]
+    3. supervisor (hard route, benefit=None)        -> benefit_check     [no pop]
     4. benefit_check: script x2, structured x1 (BenefitResult)
-    5. supervisor (LLM)                             -> medical_necessity[structured x1]
+    5. supervisor (hard route, necessity=None)      -> medical_necessity [no pop]
     6. medical_necessity: script x2, structured x1 (NecessityAssessment)
-    7. supervisor (LLM)                             -> decision_draft   [structured x1]
+    7. supervisor (LLM)                             -> decision_draft    [structured x1]
     8. decision_draft: script x1, structured x1 (PADecision)
-    9. supervisor (hard route, decision set)        -> FINISH           [no pop]
+    9. supervisor (hard route, decision set)        -> FINISH            [no pop]
 
 Ambiguous turn order diverges after medical_necessity: its script has ONE more
 tool call (``search_clinical_guidance``, proving AC-11's "agent decides, inside
@@ -154,9 +157,12 @@ def build_clear_cut_case() -> ScriptedCase:
         ],
         structured_responses=[
             EXPECTED_REQUEST,
-            RouterDecision(next="benefit_check", rationale="request captured; benefit still unknown"),
+            # No RouterDecision popped here for benefit_check anymore --
+            # hard_route's new benefit=None guardrail (Fix B) routes there
+            # deterministically, without calling the model.
             EXPECTED_BENEFIT,
-            RouterDecision(next="medical_necessity", rationale="benefit confirmed; necessity still unknown"),
+            # Same for medical_necessity: hard_route's necessity=None guardrail
+            # routes there deterministically now too.
             necessity,
             RouterDecision(next="decision_draft", rationale="necessity clearly met; ready to draft"),
             decision,
@@ -196,9 +202,11 @@ def build_ambiguous_case() -> ScriptedCase:
         ],
         structured_responses=[
             EXPECTED_REQUEST,
-            RouterDecision(next="benefit_check", rationale="request captured; benefit still unknown"),
+            # No RouterDecision popped here for benefit_check/medical_necessity
+            # anymore -- see build_clear_cut_case's comment; hard_route's new
+            # benefit=None / necessity=None guardrails (Fix B) route there
+            # deterministically now.
             EXPECTED_BENEFIT,
-            RouterDecision(next="medical_necessity", rationale="benefit confirmed; necessity still unknown"),
             necessity,
             RouterDecision(
                 next="human_review",

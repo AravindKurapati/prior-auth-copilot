@@ -70,3 +70,18 @@ async def test_medical_necessity_tool_failure_sets_needs_replan():
     node = build_medical_necessity_node(mcp_tools=[broken_criteria_check], model=model)
     update = await node(_state())
     assert update["needs_replan"] is True
+
+
+@pytest.mark.asyncio
+async def test_medical_necessity_defensive_fallback_when_benefit_missing():
+    """PR5b final-review Fix B, part 2: hard_route's new benefit-None ->
+    benefit_check guardrail is what actually prevents this in practice, but
+    this node must not itself crash dereferencing a None benefit if it is
+    ever reached out of order — belt-and-suspenders, not a substitute for the
+    routing fix. model=None here: if the node tried to proceed to
+    run_worker_react instead of returning immediately, it would blow up
+    calling get_agent_model() with no GEMINI_API_KEY configured, so reaching
+    the assertion at all proves the early return fired."""
+    node = build_medical_necessity_node(mcp_tools=[criteria_check], model=None)
+    update = await node(_state(benefit=None))
+    assert update == {"needs_replan": True}

@@ -62,10 +62,13 @@ async def test_full_clearcut_run_reaches_a_finished_decision(memory_store, monke
 async def test_supervisor_router_decision_is_a_validated_routerdecision_each_hop(
     memory_store, monkeypatch
 ):
-    """The three LLM-routed hops (after intake/benefit_check/medical_necessity)
-    must each be a real validated `RouterDecision`, not a raw dict -- pins the
-    supervisor's `.with_structured_output(RouterDecision)` contract inside a
-    genuine multi-worker run rather than only the single-hop unit test in
+    """The one remaining LLM-routed hop (request/benefit/necessity are all
+    hard-routed deterministically since PR5b final-review Fix B added the
+    benefit=None/necessity=None guardrails -- only the decision_draft
+    transition still falls through to the LLM router) must be a real
+    validated `RouterDecision`, not a raw dict -- pins the supervisor's
+    `.with_structured_output(RouterDecision)` contract inside a genuine
+    multi-worker run rather than only the single-hop unit test in
     `test_supervisor.py`."""
     stub_summarizer(monkeypatch)
     case = build_clear_cut_case()
@@ -78,10 +81,10 @@ async def test_supervisor_router_decision_is_a_validated_routerdecision_each_hop
 
     llm_routed = [
         step for step in result["route_history"]
-        if step.reason not in ("deterministic guardrail -> intake", "deterministic guardrail -> FINISH")
+        if not step.reason.startswith("deterministic guardrail ->")
     ]
-    assert len(llm_routed) == 3
-    assert [s.to_node for s in llm_routed] == ["benefit_check", "medical_necessity", "decision_draft"]
+    assert len(llm_routed) == 1
+    assert [s.to_node for s in llm_routed] == ["decision_draft"]
 
 
 @pytest.mark.slow

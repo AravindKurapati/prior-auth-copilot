@@ -34,7 +34,23 @@ def test_hard_route_hop_cap_wins_over_finished_decision():
 
 
 def test_hard_route_falls_through_to_none_when_nothing_matches():
-    assert hard_route({"request": {}}) is None
+    # request/benefit/necessity must all be truthy now (PR5b final-review Fix
+    # B added benefit-None -> benefit_check and necessity-None ->
+    # medical_necessity guardrails between request-None and the fall-through),
+    # otherwise this state would now match one of those new rules instead of
+    # falling through -- populating them here still proves the same thing
+    # this test always proved: with every prerequisite present, hard_route
+    # truly has no deterministic rule left to apply and defers to the LLM
+    # router.
+    assert hard_route({"request": {}, "benefit": {}, "necessity": {}}) is None
+
+
+def test_hard_route_missing_benefit_goes_to_benefit_check():
+    assert hard_route({"request": {}, "benefit": None}) == "benefit_check"
+
+
+def test_hard_route_missing_necessity_goes_to_medical_necessity():
+    assert hard_route({"request": {}, "benefit": {}, "necessity": None}) == "medical_necessity"
 
 
 def test_hard_route_finished_decision_wins_over_missing_request():
@@ -45,12 +61,21 @@ def test_hard_route_finished_decision_wins_over_missing_request():
 
 @pytest.mark.asyncio
 async def test_supervisor_node_uses_llm_router_when_no_hard_rule_matches():
+    # request/benefit/necessity must all be truthy (PR5b final-review Fix B):
+    # otherwise the new benefit-None/necessity-None guardrails would fire
+    # deterministically and this test would stop exercising the LLM router
+    # path at all while still passing (the fake's target happens to match
+    # what a hard rule would also pick). Route to decision_draft instead so a
+    # coincidental match with a hard rule can't mask that.
     fake = FakeToolCallingModel(structured_responses=[
-        RouterDecision(next="benefit_check", rationale="request captured, need benefit check")
+        RouterDecision(next="decision_draft", rationale="benefit + necessity captured, ready to draft")
     ])
     node = build_supervisor_node(model=fake)
-    update = await node({"request": {"service_code": "72148"}, "route_history": [], "supervisor_hops": 0})
-    assert update["next"] == "benefit_check"
+    update = await node({
+        "request": {"service_code": "72148"}, "benefit": {}, "necessity": {},
+        "route_history": [], "supervisor_hops": 0,
+    })
+    assert update["next"] == "decision_draft"
     assert len(update["route_history"]) == 1
     assert update["supervisor_hops"] == 1
 

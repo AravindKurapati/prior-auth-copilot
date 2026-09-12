@@ -57,3 +57,20 @@ async def test_decision_draft_deny_writes_critical_memory(memory_store):
     await node(_state([]))
     items = memory_store.search(("pa", "member", "M100001"), limit=10)
     assert any(i.value.get("importance") == "critical" for i in items)
+
+
+@pytest.mark.asyncio
+async def test_decision_draft_defensive_fallback_when_necessity_missing(memory_store):
+    """PR5b final-review Fix B, part 2: hard_route's new necessity-None ->
+    medical_necessity guardrail is what actually prevents this in practice,
+    but this node must not itself crash dereferencing a None necessity if it
+    is ever reached out of order — belt-and-suspenders, not a substitute for
+    the routing fix. model=None here: if the node tried to proceed to
+    run_worker_react instead of returning immediately, it would blow up
+    calling get_agent_model() with no GEMINI_API_KEY configured, so reaching
+    the assertion at all proves the early return fired."""
+    state = _state([])
+    state["necessity"] = None
+    node = build_decision_draft_node(store=memory_store, model=None)
+    update = await node(state)
+    assert update == {"needs_replan": True}
