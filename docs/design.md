@@ -41,7 +41,7 @@ All pip-installable, no Docker, no external database service. Python 3.11+.
 | Concern | Choice | Notes |
 |---|---|---|
 | Graph | `langgraph` — hand-rolled `StateGraph` | not the `langgraph-supervisor` prebuilt; explicit topology is the graded evidence |
-| Checkpointer (AC-05) | `SqliteSaver` (`langgraph-checkpoint-sqlite`) | file `./.pa_state.db`; thread-scoped short-term memory |
+| Checkpointer (AC-05) | `AsyncSqliteSaver` (`langgraph.checkpoint.sqlite.aio`, `langgraph-checkpoint-sqlite` package), backed by `aiosqlite` | file `./.pa_state.db`; thread-scoped short-term memory. **Correction (PR5b):** the sync `SqliteSaver` cannot run any async checkpoint operation at all — it raises `NotImplementedError` on the first checkpoint read against this fully-async graph (verified empirically). `AsyncSqliteSaver` is required; construct directly (`conn = await aiosqlite.connect(path)`, `AsyncSqliteSaver(conn)`, `await .setup()`), not via `from_conn_string` (an async contextmanager that closes the connection on exit). |
 | Long-term memory (AC-06/07/08) | `SqliteStore` (same package) | file `./.pa_memory.db`; native TTL (`TTLConfig`), optional `sqlite-vec` semantic index; `PolicyStore` subclass injects per-namespace TTL + importance on every write |
 | Agent-managed memory | `langmem` `create_manage_memory_tool` / `create_search_memory_tool` | over the `SqliteStore` |
 | Compression (NFR-08) | `langmem.short_term.SummarizationNode` | running summary in `state["context"]` |
@@ -237,8 +237,10 @@ loops.
 
 ### 3.7 Checkpointer (AC-05)
 
-`graph.compile(checkpointer=SqliteSaver.from_conn_string(PA_STATE_DB),
-store=SqliteStore.from_conn_string(PA_MEMORY_DB, index=...))`.
+`graph.compile(checkpointer=<AsyncSqliteSaver over PA_STATE_DB>,
+store=<PolicyStore over PA_MEMORY_DB, index=...>)` — both constructed directly (not via
+their `from_conn_string` contextmanagers, which close the connection on exit) so they stay
+open for the graph's lifetime.
 `pac submit` runs to a pause or finish; `pac resume <case_id>` re-enters from the persisted
 checkpoint in a **separate process invocation**. Evidence:
 `traces/pause_resume_transcript.md`.
@@ -336,7 +338,7 @@ Evidence: `tests/test_nfr03_quarantine.py` includes a prompt-injection **canary*
 
 | Tier | Store | Scope | Purpose |
 |---|---|---|---|
-| **Short-term / working** | `state["working_memory"]` + `messages`, persisted by `SqliteSaver` | one case / thread | recall a fact from an earlier turn (AC-06) |
+| **Short-term / working** | `state["working_memory"]` + `messages`, persisted by `AsyncSqliteSaver` | one case / thread | recall a fact from an earlier turn (AC-06) |
 | **Long-term / semantic** | `SqliteStore` + `sqlite-vec` (bge-small local embeddings) | cross-thread, cross-session | member history, provider patterns, policy notes, episodic case summaries |
 
 Namespaces: `("pa","member",<id>)`, `("pa","provider",<npi>)`, `("pa","policy_notes")`,
