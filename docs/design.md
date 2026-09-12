@@ -161,8 +161,13 @@ human_review      -> interrupt()   # pause; resume re-enters supervisor
 ```
 
 `summarize` runs before every supervisor turn, so the routing prompt stays bounded no
-matter how many reflection loops execute. `graph.get_graph().draw_ascii()` is dumped to
-`traces/graph_topology.txt`.
+matter how many reflection loops execute. `graph.get_graph().draw_mermaid()` is dumped to
+`traces/graph_topology.txt` (Task 6, `scripts/graph_topology_demo.py`) — not
+`draw_ascii()` as originally sketched: verified empirically that `draw_ascii()`'s node
+layout is seeded from the interpreter's (randomized-by-default) string hash order, so
+its output differs run-to-run and process-to-process, while `draw_mermaid()`'s output
+(node declarations and edges in a fixed order) was confirmed byte-identical across five
+in-process rebuilds and across processes with different `PYTHONHASHSEED` values.
 
 ### 3.2 Supervisor = deterministic guardrails + LLM router (`supervisor.py`)
 

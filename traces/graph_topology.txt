@@ -1,0 +1,31 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	summarize(summarize)
+	supervisor(supervisor)
+	intake(intake)
+	benefit_check(benefit_check)
+	medical_necessity(medical_necessity)
+	decision_draft(decision_draft)
+	human_review(human_review)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> summarize;
+	benefit_check --> summarize;
+	decision_draft --> summarize;
+	human_review --> summarize;
+	intake --> summarize;
+	medical_necessity --> summarize;
+	summarize --> supervisor;
+	supervisor -. &nbsp;FINISH&nbsp; .-> __end__;
+	supervisor -.-> benefit_check;
+	supervisor -.-> decision_draft;
+	supervisor -.-> human_review;
+	supervisor -.-> intake;
+	supervisor -.-> medical_necessity;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
