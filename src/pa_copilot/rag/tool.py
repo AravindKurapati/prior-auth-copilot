@@ -14,6 +14,7 @@ import logging
 from langchain_core.tools import tool
 
 from pa_copilot.config import get_settings
+from pa_copilot.mcp_server.data_access import CorporaUnavailable
 from pa_copilot.rag import index
 from pa_copilot.rag.embedder import Embedder
 from pa_copilot.rag.index import RagIndexUnavailable
@@ -167,7 +168,7 @@ def search_clinical_guidance(query: str, service_code: str | None = None) -> lis
             if not kept:
                 # Nothing clears the bar even after the rewrite → "still weak".
                 return []
-    except RagIndexUnavailable:
+    except (RagIndexUnavailable, CorporaUnavailable):
         # Do not crash the agent: PR5's worker then goes indeterminate ->
         # human_review on an empty citation list.
         _log.warning("clinical-guidance index unavailable; returning no citations")
