@@ -4,7 +4,7 @@ install:
 	pip install -e ".[dev]"
 
 lint:
-	ruff check src tests
+	ruff check src tests scripts
 
 test:
 	pytest -q -m "not slow"
