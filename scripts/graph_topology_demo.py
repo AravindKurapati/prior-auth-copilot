@@ -5,12 +5,25 @@ dump, not a run -- and writes the result to `traces/graph_topology.txt`.
 
 Uses `graph.get_graph().draw_mermaid()`, not `.draw_ascii()` as design.md
 originally sketched: verified empirically (this task) that `.draw_ascii()`'s
-node layout is seeded from the interpreter's string hash order, which is
-randomized per-process by default (`PYTHONHASHSEED`), so five in-process
-rebuilds and re-runs under different `PYTHONHASHSEED` values each produced a
-different node ordering in the ascii art. `.draw_mermaid()`'s output (fixed
-node-declaration and edge order) was confirmed byte-identical across the same
-checks, so it is the byte-stable choice for a committed trace.
+node layout differs on every call, including five straight in-process rebuilds
+of the identical graph. Traced the cause to the installed `grandalf` (the
+library `langchain_core.runnables.graph_ascii.draw_ascii()` delegates layout
+to): `grandalf.graphs.Vertex` defines neither `__hash__` nor `__eq__`, so it
+falls back to `object`'s default identity-based hash (confirmed by reading the
+installed source: `Vertex.__hash__ is object.__hash__` and `Vertex.__eq__ is
+object.__eq__` both hold). Grandalf's internal bookkeeping (e.g. its `Poset`
+sets and the plain `set()`s built during layout) is keyed on these vertices, so
+their iteration order follows each `Vertex` object's memory address rather
+than any content property -- and `draw_ascii()` builds a fresh set of `Vertex`
+objects, at new addresses, on every single call, which is exactly why even
+in-process reruns of the same graph reordered. (An earlier, since-corrected
+version of this note attributed the non-determinism to `PYTHONHASHSEED`
+string-hash randomization; that can't be the real mechanism, since
+`PYTHONHASHSEED` is fixed for the lifetime of a process and can't explain
+same-process variation across the five rebuilds.) `.draw_mermaid()`'s output
+(fixed node-declaration and edge order, no grandalf involved) was confirmed
+byte-identical across the same in-process and cross-`PYTHONHASHSEED` checks,
+so it is the byte-stable choice for a committed trace.
 
     python scripts/graph_topology_demo.py
 

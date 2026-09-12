@@ -164,10 +164,17 @@ human_review      -> interrupt()   # pause; resume re-enters supervisor
 matter how many reflection loops execute. `graph.get_graph().draw_mermaid()` is dumped to
 `traces/graph_topology.txt` (Task 6, `scripts/graph_topology_demo.py`) — not
 `draw_ascii()` as originally sketched: verified empirically that `draw_ascii()`'s node
-layout is seeded from the interpreter's (randomized-by-default) string hash order, so
-its output differs run-to-run and process-to-process, while `draw_mermaid()`'s output
-(node declarations and edges in a fixed order) was confirmed byte-identical across five
-in-process rebuilds and across processes with different `PYTHONHASHSEED` values.
+layout differs on every call, including five straight in-process rebuilds of the
+identical graph. Traced to the installed `grandalf` library (which
+`draw_ascii()` delegates layout to): `grandalf.graphs.Vertex` defines neither
+`__hash__` nor `__eq__`, so it falls back to `object`'s default identity-based hash,
+and grandalf's internal bookkeeping (its `Poset`/`set()` structures) is keyed on these
+vertices — so their iteration order follows each `Vertex`'s memory address rather than
+any content property, and a fresh set of `Vertex` objects (new addresses) is built on
+every call, explaining the in-process variation too. `draw_mermaid()`'s output (fixed
+node-declaration and edge order, no grandalf involved) was confirmed byte-identical
+across five in-process rebuilds and across processes with different `PYTHONHASHSEED`
+values.
 
 ### 3.2 Supervisor = deterministic guardrails + LLM router (`supervisor.py`)
 
