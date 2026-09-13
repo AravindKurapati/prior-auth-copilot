@@ -44,6 +44,10 @@ async def run_single_agent(
         system_prompt=_SYSTEM_PROMPT,
         messages=[("user", raw_provider_text)],
         response_format=PADecision,
-        lite_model=get_lite_agent_model(),
+        # Deferred like every PR6 worker: only build a real lite fallback when
+        # the caller didn't already supply a substitute `model` -- constructing
+        # get_lite_agent_model() unconditionally would eagerly hit real Google
+        # credential resolution even in fake-model tests (see medical_necessity.py).
+        lite_model=get_lite_agent_model() if model is None else None,
     )
     return decision
