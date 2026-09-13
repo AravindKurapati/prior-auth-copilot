@@ -82,3 +82,11 @@ def test_compare_prints_both_decisions(tmp_path, monkeypatch, fake_embedder):
     assert "multi-agent decision" in result.output
     assert "single-agent decision" in result.output
     assert "single-agent ok" in result.output
+
+    # A second `pac compare` on the same sample must refuse -- its multi-agent
+    # thread already has a finished checkpoint, and re-running fresh state on
+    # it would append to (not replace) that thread's additive-reducer history,
+    # the same hazard pac submit's own guard exists for.
+    second = runner.invoke(app, ["compare", str(sample_path)])
+    assert second.exit_code == 1
+    assert "already has a finished run recorded" in second.output

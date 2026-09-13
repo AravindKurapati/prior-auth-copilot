@@ -13,7 +13,13 @@ from typer.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _full_case import FAKE_MCP_TOOLS, build_clear_cut_case, stub_summarizer  # noqa: E402
+from _full_case import (  # noqa: E402
+    FAKE_MCP_TOOLS,
+    build_ambiguous_case,
+    build_clear_cut_case,
+    fake_rag_embedder,
+    stub_summarizer,
+)
 
 from pa_copilot.cli import app  # noqa: E402
 from pa_copilot.graph import make_graph  # noqa: E402
@@ -74,10 +80,12 @@ def test_submit_writes_trace_and_prints_decision(tmp_path, monkeypatch, fake_emb
     assert len(trace_files) == 1
 
 
-def test_submit_refuses_to_resubmit_an_in_progress_case_id(tmp_path, monkeypatch, fake_embedder):
-    """A second `pac submit` on a case_id that already has a checkpoint (e.g. it
-    paused at human_review) must not silently run fresh state against the same
-    thread -- it should refuse and point at `pac resume` instead."""
+def test_submit_refuses_to_resubmit_a_finished_case_id(tmp_path, monkeypatch, fake_embedder):
+    """A second `pac submit` on a case_id whose thread already reached FINISH
+    must not silently run fresh state against it (that would APPEND to, not
+    replace, the thread's additive-reducer history, e.g. route_history) -- it
+    should refuse with a message that does NOT tell the user to `pac resume`
+    (there is nothing paused to resume)."""
     monkeypatch.setenv("PA_STATE_DB", str(tmp_path / "state.db"))
     monkeypatch.setenv("PA_MEMORY_DB", str(tmp_path / "mem.db"))
     monkeypatch.setenv("PA_TRACES_DIR", str(tmp_path / "traces"))
@@ -105,7 +113,45 @@ def test_submit_refuses_to_resubmit_an_in_progress_case_id(tmp_path, monkeypatch
 
     second = runner.invoke(app, ["submit", str(sample_path)])
     assert second.exit_code == 1
-    assert "pac resume" in second.output
+    assert "already has a completed run recorded" in second.output
+    assert "pac resume" not in second.output
+
+
+def test_submit_refuses_to_resubmit_a_paused_case_id(tmp_path, monkeypatch, fake_embedder):
+    """A second `pac submit` on a case_id that's genuinely paused at
+    human_review must refuse and point at `pac resume` -- the case this
+    guard's error message is actually written for."""
+    monkeypatch.setenv("PA_STATE_DB", str(tmp_path / "state.db"))
+    monkeypatch.setenv("PA_MEMORY_DB", str(tmp_path / "mem.db"))
+    monkeypatch.setenv("PA_TRACES_DIR", str(tmp_path / "traces"))
+
+    stub_summarizer(monkeypatch)
+    case = build_ambiguous_case()
+    _patch_graph(monkeypatch, case.model, fake_embedder)
+
+    sample = {
+        "case_id": case.case_id,
+        "session_id": "sess-full-case",
+        "member_id": "M100001",
+        "raw_provider_text": "Requesting prior auth for MRI lumbar spine (72148).",
+        "structured": {
+            "service_code": "72148", "diagnosis_codes": ["M54.16"],
+            "requested_units": 1, "place_of_service": "outpatient",
+            "provider_npi": "1093817465",
+        },
+    }
+    sample_path = tmp_path / "sample.json"
+    sample_path.write_text(json.dumps(sample), encoding="utf-8")
+
+    with fake_rag_embedder():
+        first = runner.invoke(app, ["submit", str(sample_path)])
+    assert first.exit_code == 0, first.output
+    assert "paused" in first.output
+
+    second = runner.invoke(app, ["submit", str(sample_path)])
+    assert second.exit_code == 1
+    assert "already paused" in second.output
+    assert f"pac resume {case.case_id}" in second.output
 
 
 def test_resume_does_not_pass_manual_supervisor_hops_override(tmp_path, monkeypatch, fake_embedder):

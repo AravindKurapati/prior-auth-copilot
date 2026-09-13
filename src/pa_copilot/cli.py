@@ -41,9 +41,17 @@ def _parse_namespace(namespace: str) -> tuple[str, ...]:
 
 
 def _real_embedder(settings: Settings):
-    """The same embedder construction rag/index.py's `_resolve` uses -- lazy
-    (no model load until first embed call), so importing/constructing this is
-    cheap even when a command never ends up calling it."""
+    """The same embedder construction rag/index.py's `_resolve` uses.
+    Constructing a `BgeEmbedder` itself is cheap (`_get_model()` defers the
+    actual `sentence-transformers` load to its first call) -- but every real
+    CLI command that reaches `_open_state` passes this into `memory_store(...,
+    semantic=True)`, whose `setup()` immediately calls `embedding_dims(embedder)`
+    to size the index, which DOES call `embed_query` right away. So in
+    practice every real (non-test) `pac submit`/`resume`/`compare`/`memory
+    search` invocation pays real model-load latency up front -- this is not
+    deferred to first actual memory search, despite the embedder object's own
+    laziness. Accepted cost of giving real runs a working semantic index
+    instead of silently disabling it (see this PR's fix-wave notes)."""
     from pa_copilot.rag.embedder import BgeEmbedder  # noqa: PLC0415
 
     return BgeEmbedder(settings.embedding_model)
@@ -72,6 +80,25 @@ async def _open_mcp_tools():
     client = build_client()
     async with pa_session(client) as session:
         yield await load_pa_tools(session=session)
+
+
+async def _thread_status(graph, thread: dict) -> str:
+    """"new" (no checkpoint yet -- safe to run fresh state), "paused" (an
+    interrupt is waiting -- `pac resume` is the only safe next step), or
+    "finished" (reached FINISH/END -- re-running fresh state on this thread
+    would append to, not replace, its history via the state's additive
+    reducers, e.g. route_history/tool_failures). `aget_tuple` alone can't tell
+    "paused" from "finished" -- both have a checkpoint -- only `aget_state`'s
+    `.next` (which node(s) would run on the next step) distinguishes them:
+    empty for both a fresh AND a finished thread, so `created_at` (None only
+    before any checkpoint exists) is what separates those two. Verified
+    empirically: fresh thread -> next=(), created_at=None; finished thread ->
+    next=(), created_at=<timestamp>; paused thread -> next=('human_review',),
+    created_at=<timestamp>."""
+    snapshot = await graph.aget_state(thread)
+    if snapshot.created_at is None:
+        return "new"
+    return "paused" if snapshot.next else "finished"
 
 
 @asynccontextmanager
@@ -182,33 +209,39 @@ def submit(
     async def _run():
         async with _open_state(settings) as (checkpointer, store):
             thread = {"configurable": {"thread_id": case_id}}
-            existing = await checkpointer.aget_tuple(thread)
-            if existing is not None:
-                typer.echo(
-                    f"case_id={case_id} already has a checkpoint (from a prior "
-                    f"submit/resume) -- use `pac resume {case_id}` instead of "
-                    "re-submitting, to avoid running fresh state against an "
-                    "already-in-progress thread.",
-                    err=True,
-                )
-                raise typer.Exit(code=1)
+            async with _open_graph(store, checkpointer) as graph:
+                status = await _thread_status(graph, thread)
+                if status == "paused":
+                    typer.echo(
+                        f"case_id={case_id} is already paused -- use "
+                        f"`pac resume {case_id}` instead of re-submitting.",
+                        err=True,
+                    )
+                    raise typer.Exit(code=1)
+                if status == "finished":
+                    typer.echo(
+                        f"case_id={case_id} already has a completed run recorded -- "
+                        "re-submitting would append to, not replace, that thread's "
+                        "history. Use a different case_id to submit again.",
+                        err=True,
+                    )
+                    raise typer.Exit(code=1)
 
-            tracer = RunTracer(
-                settings.traces_dir,
-                case_id,
-                redact_values=default_redact_values(Path(settings.data_dir)),
-                session_id=sid,
-            )
-            result = None
-            try:
-                async with _open_graph(store, checkpointer) as graph:
+                tracer = RunTracer(
+                    settings.traces_dir,
+                    case_id,
+                    redact_values=default_redact_values(Path(settings.data_dir)),
+                    session_id=sid,
+                )
+                result = None
+                try:
                     state = new_case_state(case_id, sid, mid, submission.raw_provider_text)
                     result = await graph.ainvoke(state, config=thread)
-            finally:
-                for step in (result or {}).get("route_history") or []:
-                    tracer.event(step.to_node, "route", {"reason": step.reason})
-                decision = (result or {}).get("decision")
-                tracer.finish(decision=decision.model_dump() if decision else None)
+                finally:
+                    for step in (result or {}).get("route_history") or []:
+                        tracer.event(step.to_node, "route", {"reason": step.reason})
+                    decision = (result or {}).get("decision")
+                    tracer.finish(decision=decision.model_dump() if decision else None)
 
             typer.echo(f"case_id={case_id}")
             if decision:
@@ -286,6 +319,13 @@ def run_all() -> None:
         typer.echo(f"--- submitting {sample.name} ---")
         try:
             submit(sample, session_id=None, member_id=None)
+        except typer.Exit:
+            # submit() refuses a case_id that already has a checkpoint (paused
+            # or finished, from an earlier `pac all`/`pac submit` run against
+            # this same state_db) -- that's not a failure of THIS run, so it
+            # must not count against `remaining` below or `pac all` would stop
+            # being safely re-runnable against a persistent database.
+            typer.echo("  skipped (already run)")
         except Exception as exc:  # noqa: BLE001 -- one bad sample must not abort the battery
             typer.echo(f"  FAILED: {exc}", err=True)
             failed.add(sample)
@@ -294,6 +334,8 @@ def run_all() -> None:
     if remaining:
         try:
             compare(remaining[0])
+        except typer.Exit:
+            typer.echo("compare skipped (already run)")
         except Exception as exc:  # noqa: BLE001 -- compare is illustrative, not a hard gate
             typer.echo(f"compare FAILED: {exc}", err=True)
 
@@ -314,6 +356,16 @@ def compare(sample_path: Path) -> None:
             thread = {"configurable": {"thread_id": case_id}}
             async with _open_mcp_tools() as mcp_tools:
                 graph = await make_graph(store=store, checkpointer=checkpointer, mcp_tools=mcp_tools)
+                status = await _thread_status(graph, thread)
+                if status in ("paused", "finished"):
+                    typer.echo(
+                        f"case_id={case_id} already has a {status} run recorded -- "
+                        "pac compare doesn't re-run an existing thread (its multi-agent "
+                        "state uses the same additive reducers pac submit does). Use a "
+                        "different sample, or edit its case_id, to compare again.",
+                        err=True,
+                    )
+                    raise typer.Exit(code=1)
                 state = new_case_state(
                     case_id, submission.session_id, submission.member_id,
                     submission.raw_provider_text,
