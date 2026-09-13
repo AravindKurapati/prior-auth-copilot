@@ -15,7 +15,12 @@ Two independent mechanisms:
    structured-output call itself failed validation (WorkerOutputError) -- a DISTINCT
    failure mode from a tool error, per design.md's NFR-07 row separating "transient tool
    errors" from "model-call failure". WorkerRecursionError is never retried by either
-   mechanism (see this plan's Design decisions).
+   mechanism (see this plan's Design decisions). A timeout (WorkerTimeoutError, a
+   WorkerToolError subclass) is likewise never retried by tenacity -- excluded via
+   _is_retryable -- since a blown time budget isn't "transient" the way a flaky tool
+   call is (final whole-branch review finding, PR6); it still reaches the worker's own
+   except WorkerToolError handler unchanged and is bounded instead by the
+   supervisor-level replan cap (max_replans).
 """
 
 from __future__ import annotations
@@ -25,11 +30,12 @@ from typing import Any
 
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
-from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_exponential
 
 from pa_copilot.agents._react import (
     AttributedToolError,
     WorkerOutputError,
+    WorkerTimeoutError,
     WorkerToolError,
     run_worker_react,
 )
@@ -94,14 +100,24 @@ async def run_worker_react_resilient(
                 timeout=s.worker_timeout_seconds,
             )
         except asyncio.TimeoutError as exc:
-            raise WorkerToolError(
+            raise WorkerTimeoutError(
                 tool="_worker_turn_", error=f"exceeded {s.worker_timeout_seconds}s"
             ) from exc
+
+    def _is_retryable(exc: BaseException) -> bool:
+        # A WorkerTimeoutError IS a WorkerToolError (every worker's existing
+        # except WorkerToolError still catches it), but a blown time budget
+        # isn't "transient" the way a flaky tool call is -- retrying it here
+        # would push worst-case per-node-visit latency to max_tool_retries *
+        # worker_timeout_seconds before the supervisor-level reflection loop
+        # (bounded by max_replans) even gets a turn to react. Final
+        # whole-branch review finding, PR6.
+        return isinstance(exc, WorkerToolError) and not isinstance(exc, WorkerTimeoutError)
 
     retrying = AsyncRetrying(
         stop=stop_after_attempt(s.max_tool_retries),
         wait=wait_exponential(multiplier=0.5, max=5),
-        retry=retry_if_exception_type(WorkerToolError),
+        retry=retry_if_exception(_is_retryable),
         reraise=True,
     )
     try:

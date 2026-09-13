@@ -48,15 +48,22 @@ async def test_persistent_timeout_ends_at_human_review_not_unhandled_exception(
     scenario: a tool that just HANGS (simulating a stuck MCP subprocess or a
     slow network call) must still be bounded by worker_timeout_seconds and
     degrade the same way -- reflection.py's run_worker_react_resilient
-    converts the asyncio.TimeoutError into a WorkerToolError(tool=
+    converts the asyncio.TimeoutError into a WorkerTimeoutError(tool=
     "_worker_turn_", ...) internally (see reflection.py), which this test
-    confirms surfaces correctly all the way through a real graph run."""
+    confirms surfaces correctly all the way through a real graph run.
+
+    Final whole-branch review finding (PR6): a timeout used to be retried by
+    tenacity like any other WorkerToolError, pushing worst-case latency to
+    max_tool_retries * worker_timeout_seconds per node visit. Fixed by
+    excluding WorkerTimeoutError from the retry predicate -- this test no
+    longer needs to override PA_MAX_TOOL_RETRIES to stay fast (one script
+    entry per node visit is now correct regardless of that setting's value,
+    since a timeout is never retried); the test's own wall-clock time (well
+    under a second for max_replans node visits at 0.05s each) is itself
+    evidence the fix works."""
     monkeypatch.setenv("PA_WORKER_TIMEOUT_SECONDS", "0.05")
-    monkeypatch.setenv("PA_MAX_TOOL_RETRIES", "1")  # keep the test fast -- one
-    # attempt per node visit is enough to prove the timeout path; retry count
-    # itself is Task 1's own concern (test_reflection_resilience.py).
     get_settings.cache_clear()  # memory_store fixture already primed the
-    # lru_cache with the OLD env values during its own setup, same footgun
+    # lru_cache with the OLD env value during its own setup, same footgun
     # Task 2's test_intake_tool_failure_sets_needs_replan hit.
     stub_summarizer(monkeypatch)
     settings = get_settings()

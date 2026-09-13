@@ -4,11 +4,14 @@ retrieved_criteria, and records a critical-importance memory on denial via a
 direct PolicyStore.put (LangMem's generic manage_memory tool hardcodes
 routine importance and cannot express this)."""
 
+import asyncio
+
 import pytest
 from langchain_core.messages import AIMessage
 
 from _fakes import FakeToolCallingModel
 from pa_copilot.agents.decision_draft import build_decision_draft_node
+from pa_copilot.config import get_settings
 from pa_copilot.schemas import BenefitResult, CriteriaCitation, NecessityAssessment, PADecision, PARequest
 
 
@@ -74,3 +77,30 @@ async def test_decision_draft_defensive_fallback_when_necessity_missing(memory_s
     node = build_decision_draft_node(store=memory_store, model=None)
     update = await node(state)
     assert update == {"needs_replan": True}
+
+
+@pytest.mark.asyncio
+async def test_decision_draft_model_timeout_degrades_instead_of_raising(memory_store, monkeypatch):
+    """Final whole-branch review finding (PR6): decision_draft was the only one
+    of the four workers not catching WorkerToolError, so a slow/hung model call
+    (run_worker_react_resilient's worker_timeout_seconds wraps the WHOLE turn,
+    model call included, even though this worker has zero tools) escaped
+    graph.ainvoke() uncaught -- contradicting NFR-07's "never an unhandled
+    exception" claim. This test hangs the MODEL itself (not a tool, since
+    decision_draft binds none) to prove the fix."""
+    monkeypatch.setenv("PA_WORKER_TIMEOUT_SECONDS", "0.05")
+    get_settings.cache_clear()  # memory_store fixture already primed the
+    # lru_cache with the OLD env value during its own setup (same footgun as
+    # test_nfr07_degradation.py's timeout test).
+
+    class HangingModel(FakeToolCallingModel):
+        async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
+            await asyncio.sleep(999)
+
+    model = HangingModel(script=[AIMessage(content="drafted")], structured_responses=[])
+    node = build_decision_draft_node(store=memory_store, model=model)
+
+    update = await node(_state([]))  # must not raise
+
+    assert update["needs_replan"] is True
+    assert update["tool_failures"][0].tool == "_worker_turn_"

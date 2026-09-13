@@ -74,6 +74,17 @@ class WorkerToolError(Exception):
         self.attempt = attempt
 
 
+class WorkerTimeoutError(WorkerToolError):
+    """A worker turn exceeded worker_timeout_seconds -- deliberately a
+    WorkerToolError subclass so every worker's existing `except WorkerToolError`
+    handler still catches it unchanged, but reflection.run_worker_react_resilient's
+    tenacity layer excludes it from retry (final whole-branch review, PR6):
+    a blown time budget isn't "transient" the way a flaky tool call is, and
+    retrying it 3x before giving up pushed worst-case per-node-visit latency to
+    max_tool_retries * worker_timeout_seconds -- an unbounded-feeling delay
+    before the supervisor-level reflection loop even gets a turn to react."""
+
+
 class WorkerOutputError(Exception):
     """The post-loop structured-output call failed validation (or the model
     otherwise couldn't produce a valid response_format instance) -- a

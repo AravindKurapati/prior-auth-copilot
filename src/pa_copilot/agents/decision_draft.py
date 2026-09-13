@@ -15,8 +15,10 @@ from langchain_core.messages import HumanMessage
 from pa_copilot.agents._react import (
     WorkerOutputError,
     WorkerRecursionError,
+    WorkerToolError,
     get_agent_model,
     get_lite_agent_model,
+    tool_failure_update,
 )
 from pa_copilot.context.assembly import select_for
 from pa_copilot.memory.store import PolicyStore
@@ -70,6 +72,15 @@ def build_decision_draft_node(
                 # intake.py's identical comment for why.
                 lite_model=get_lite_agent_model() if model is None else None,
             )
+        except WorkerToolError as exc:
+            # Final whole-branch review finding (PR6): run_worker_react_resilient's
+            # worker_timeout_seconds wraps the WHOLE turn, model call included --
+            # decision_draft has zero tools, but a slow/hung model response still
+            # raises WorkerToolError(tool="_worker_turn_", ...) on timeout. Before
+            # this fix it was the only one of the four workers not catching
+            # WorkerToolError, so a timeout here escaped graph.ainvoke() uncaught,
+            # directly contradicting NFR-07's "never an unhandled exception" claim.
+            return tool_failure_update(exc)
         except (WorkerOutputError, WorkerRecursionError):
             return {"needs_replan": True}
 
