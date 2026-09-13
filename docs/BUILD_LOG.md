@@ -314,35 +314,161 @@ touches supervisor routing, not a fix-wave item.
 
 ---
 
-## NEXT: PR6 — Reflection & Self-Healing  (branch `feat/reflection`, off `main` @ `5b0068c`)
+## PR6 — Reflection & Self-Healing  (merged `c5f9677`)
 
-**Scope (design.md §3.5/§3.6; AC-12, NFR-07):**
-- `reflection.py` — the dual-trigger reflection/self-healing loop: tool failure (catch,
-  append `ToolFailure`, `needs_replan=True`, re-route to the same worker while
-  `replan_count < MAX_REPLANS`, else `human_review`) and low confidence
-  (`medical_necessity` confidence `< tau` or `criteria_status="indeterminate"` →
-  supervisor loops back with a hint; `decision_draft` self-critique failure → back to
-  `medical_necessity`).
-- `tenacity` retries (exponential backoff, max 3) on transient tool errors;
-  `asyncio.wait_for` timeouts per tool call; model-call failure → one retry on the lite
-  model → else `human_review`. **Already empirically verified this session** (library
-  facts, not yet applied): `tenacity.retry(...)` works transparently on `async def`
-  functions (auto-selects `AsyncRetrying`, no separate import needed);
-  `asyncio.TimeoutError is TimeoutError` in this Python version; `asyncio.wait_for`
-  genuinely cancels the wrapped coroutine on timeout (verified a coroutine observes
-  `CancelledError` and can clean up) — safe to wrap `run_worker_react(...)` calls,
-  including mid-MCP-subprocess-call ones.
-- Enforce `replan_count`/`MAX_REPLANS` — currently `replan_count` is never incremented
-  anywhere in the codebase; only `supervisor_hops`/`MAX_HOPS` is a live backstop.
-- **Must also fix, together, not separately** (see PR5b's parked items above):
-  `supervisor_hops` never resets after a real resume (now a live risk once PR7's
-  `pac resume` exists, since the recursion-limit fix makes the hop cap reachable), and
-  `_best_effort_tool_name`'s universal `"unknown_tool"` fallback (real per-tool
-  attribution needed for AC-12's tool-failure evidence to mean anything).
-- Evidence: `traces/reflection_tool_failure.json`, `traces/reflection_low_confidence.json`.
+Closes **AC-12, NFR-07** in full. `reflection.py` — two mechanisms: (1)
+`attribute_tool_errors(tools)` wraps each tool's `.func`/`.coroutine` in place
+(idempotent via a `_pa_attributed` marker — safe across the 3 worker builders that
+share `mcp_tools`) so a tool failure is tagged with its REAL name via a new
+`AttributedToolError`, closing the `"unknown_tool"` gap `_best_effort_tool_name` had
+for every worker bound to 2+ tools (PR5a/5b's carried-forward item); (2)
+`run_worker_react_resilient(...)` wraps one whole worker turn in `asyncio.wait_for`
+(`worker_timeout_seconds`), `tenacity` exponential-backoff retries
+(`max_tool_retries`) on a transient `WorkerToolError`, and exactly one separate
+fallback attempt on a lite model (`model_agent_lite`) when the structured-output call
+itself fails validation (`WorkerOutputError`) — wired into all four ReAct workers.
+`supervisor.py` — `hard_route`'s cap-exhaustion check broadened to
+`(tool_failures or needs_replan) and replan_count >= max_replans`; `build_supervisor_
+node` now consumes a pending `needs_replan` once per turn (increments `replan_count`,
+builds an `effective_state` visible to `hard_route`/`route_with_llm` on the SAME
+turn, clears `needs_replan`); `route_with_llm` gained a reflection hint in its
+prompt. `medical_necessity.py` sets `needs_replan=True` on `confidence < tau` or
+`criteria_status="indeterminate"` WITHOUT withholding `necessity`/`retrieved_
+criteria` — the low-confidence "loop back" is a real, reachable LLM-router choice
+(design.md's "supervisor loops back with a hint"), not a new deterministic
+`hard_route` rule; this was a deliberate design ruling, confirmed independently
+correct by the final whole-branch review, with one disclosed cost: the trigger is
+proven *reachable*, not proven to *occur* — a real Gemini call may pick
+`human_review` directly instead of looping back, same as `tests/_full_case.py`'s
+already-`done` AC-03 ambiguous case does. `human_review.py` now resets
+`supervisor_hops`/`replan_count` to 0 on resume (a human just intervened — fresh
+attempt budget), closing PR5b's carried-forward gap; testable in PR6 without PR7's
+`pac resume` existing (`InMemorySaver` + `Command(resume=...)`, no manual
+`update=` needed). AC-12 evidence: `tests/_reflection_case.py` (4 scripted scenarios
+— tool-failure recover/exhaust, low-confidence recover/exhaust — through the REAL
+compiled graph), `tests/test_ac12_reflection.py`, `scripts/reflection_demo.py` →
+`traces/reflection_tool_failure.json` / `traces/reflection_low_confidence.json`
+(byte-stable). NFR-07: `tests/test_nfr07_degradation.py` (persistent tool failure +
+persistent timeout, both end cleanly at `human_review`, never an unhandled
+exception). 227 tests pass (222 fast + 5 slow-skipped without a key), pristine;
+`ruff check src tests scripts` clean.
+
+Key bugs caught and fixed, several only at the final whole-branch review (same
+pattern as every prior PR — see PR4/PR5a/PR5b's own entries): (1) **Task 1 fix
+round**: a test mutated the real `search_clinical_guidance` module-level singleton's
+new `_pa_attributed` idempotency marker with no teardown, permanently corrupting it
+for the rest of the pytest process — fixed via `.model_copy()` on a throwaway
+instance instead. (2) **Task 2**: `run_worker_react_resilient`'s tenacity retries
+exhaust a single-shot `FakeToolCallingModel` script on the 2nd attempt, masking
+correct attribution as `"unknown_tool"` again — fixed by pinning `max_tool_retries=1`
+in the three affected worker tests (they test the single-failure contract, not
+retry behavior). (3) **Task 4**: found (while implementing, not via review) that
+`StateGraph(dict)` combined with a `PACaseState`-annotated node produces incorrect
+merge behavior on resume — a real LangGraph introspection quirk, worked around by
+using `StateGraph(PACaseState)` in the test (which also matches production); also
+found a genuine regression Task 4's own fix caused against a *pre-existing* test
+that had pinned the OLD buggy "resume never resets hops" behavior — updated+renamed
+rather than left stale. (4) **Final whole-branch review** (opus, independently
+re-ran the fast suite + ruff + hand-traced the full exception chain end to end):
+`decision_draft.py` was the only one of the four workers not catching
+`WorkerToolError`, so PR6's own new per-turn timeout could escape `graph.ainvoke()`
+completely uncaught — in the same branch that marks NFR-07 `done` claiming "never an
+unhandled exception." Fixed by adding the same handler the other three workers
+already had. Also: a timeout-sourced `WorkerToolError` was being retried by tenacity
+like a real transient error, pushing worst-case per-node-visit latency to
+`max_tool_retries × worker_timeout_seconds` (~90s) — fixed via a new
+`WorkerTimeoutError(WorkerToolError)` subclass excluded from the retry predicate (a
+blown time budget isn't "transient"), still caught unchanged by every worker's
+existing `except WorkerToolError`. One scoped re-review confirmed both fixes clean.
+
+**Process note:** partway through, the user asked to skip per-task review to
+conserve API budget — Tasks 3(fix)/4/5/6 were implemented directly by the session
+(no subagent dispatch, no per-task reviewer) and self-verified via targeted test
+runs; the mandatory final whole-branch review (opus, full rigor) was kept as the
+sole remaining gate and is exactly what caught the two Important findings above —
+the same "faster loop, rigorous backstop" tradeoff PR5a's own process note
+described, observed again. Separately, Task 2's subagent implementer stalled twice
+(ended its turn mid-task with no commit; then ran 32 minutes with no output after
+being resumed) — the session took over directly rather than re-dispatching a third
+time, keeping the subagent's correct edits (verified via diff read) and fixing a
+real bug it hadn't reached yet.
+
+**Parked/deferred items carried forward (not fixed in PR6, ledgered with reasoning
+in `.superpowers/sdd/implementation-plan-pr6/progress.md`, now deleted per the SDD
+skill's finish step — summarized here):**
+- `ToolFailure.attempt` is hardcoded to `1` everywhere it's constructed, so it never
+  reflects how many tenacity attempts a failure actually burned — the committed
+  `traces/reflection_tool_failure.json` trace under-reports this (only the fake
+  tool's own error-message string happens to reveal the real count). `reflection.py`
+  has the real `retry_state.attempt_number` available; stamping it onto the
+  re-raised `WorkerToolError` would fix this.
+- `supervisor.py`'s `route_with_llm` reflection hint only covers 2 of the 3
+  `needs_replan` triggers — `decision_draft`'s self-critique failure produces an
+  empty hint. Also a latent (currently unreachable) `AttributeError` trip-wire:
+  `necessity is not None` doesn't guard against a dict placeholder lacking
+  `.confidence`.
+- `attribute_tool_errors`' wrapper closures erase the wrapped callable's signature
+  (no `functools.wraps`) — verified safe today (no tool in this codebase resolves a
+  `config: RunnableConfig` parameter via introspection; langmem's namespace
+  templating uses a contextvar instead), but a future tool that does would lose
+  config injection silently.
+- Inconsistent `get_settings.cache_clear()` symmetry across worker tests that
+  override env-based settings after a fixture (like `memory_store`) has already
+  primed the `lru_cache` — `test_agent_benefit_check.py`'s equivalent test currently
+  passes for the "wrong reason" (single-tool worker, so `_best_effort_tool_name`
+  would have guessed right anyway).
+- `tool_failures`' `operator.add` reducer never clears, so once any failure occurs
+  in a case, the broadened cap check stays permanently armed — combined with the
+  cap sitting above the FINISH rule in `hard_route`, a case that fully recovers
+  from `replan_count == max_replans` worth of failures routes to `human_review`
+  instead of `FINISH` even though `decision` is set. Judged intentional-as-an-
+  explicit-exit-condition by the final review, but untested and undocumented as
+  such.
+- `test_medical_necessity_calls_rag_when_indeterminate` (pre-existing, not touched
+  by PR6) is unusually slow (~20-40s, real `bge-small` embedding model load) and
+  flaked with a real `KeyError` failure once during this PR's own merge-verification
+  step, passing cleanly on immediate retry — not reproduced a second time, and the
+  final review had already independently flagged this exact test as an outlier
+  before the flake occurred. Plausibly HF Hub resolution variability, but PR6's new
+  `worker_timeout_seconds` default (30s) is now a real hard ceiling this test sits
+  close to, where none existed before — worth switching this test to `FakeEmbedder`
+  (like every other RAG test already does) rather than hoping the real model keeps
+  loading fast enough, independent of anything else in PR6.
+- 2 gaps in the plan itself, not the implementation: the plan never reasoned about
+  whether a timeout should be retryable before specifying both "timeout becomes a
+  WorkerToolError" and "retry on WorkerToolError" as separate facts; the plan's own
+  "decision_draft's except clause is out of scope for this task" ruling created the
+  scope seam that the NFR-07-done claim then fell into.
+
+---
+
+## NEXT: PR7 — Interfaces  (branch `feat/interfaces`, off `main` @ `c5f9677`)
+
+**Scope (design.md §10):** `cli.py` (`pac` — `ingest`, `submit`, `resume`, `memory`,
+`persistence-test`, `compare`, `demo`, `all`), `app/streamlit_app.py`, the full
+genuine MCP transcript (needs a real `GEMINI_API_KEY`, currently representative),
+`single_agent.py` + `pac compare`, `docs/{single-vs-multi-agent,agent-patterns,
+rubric-coverage}.md`, README quick-start, CI (`.github/workflows/tests.yml`). Closes
+AC-10 (full), NFR-01, NFR-02, NFR-04 (full trace-schema validation across `traces/`),
+NFR-06.
+
+**`pac resume` must rely on PR6's existing mechanism, not re-invent one:**
+`human_review.py`'s node already resets `supervisor_hops`/`replan_count` to 0 on any
+resume, tested without `pac resume` existing at all
+(`tests/test_agent_human_review.py::test_resume_resets_hop_and_replan_counters`,
+`tests/test_ac05_checkpointer.py::test_resume_completes_without_a_manual_hop_reset`).
+`cli.py`'s job is just `graph.ainvoke(Command(resume=...), config=...)` on a fresh
+process per design.md §3.7 — no new reset logic belongs in the CLI layer.
+
+**Also worth doing in PR7 or as a quick fix before it, independent of new scope**
+(see PR6's parked items above): switch `test_medical_necessity_calls_rag_when_
+indeterminate` to `FakeEmbedder` (matches every other RAG test's convention) so it
+stops sitting close to `worker_timeout_seconds`'s 30s default on a slow/cold model
+load.
 
 **Resume:** `cd D:/Aru/NYU/Virtusa/prior-auth-copilot`, confirm `git log --first-parent`
-shows `Merge PR5b`, then write `docs/implementation-plan-pr6.md` and run the SDD cycle.
-Prior rulings are in `.superpowers/sdd/implementation-plan-pr{1,2,3,4}/progress.md` (PR5a
-and PR5b's own workspaces were deleted per the SDD skill's finish step — their rulings are
-summarized in the sections above and in the `Merge PR5a`/`Merge PR5b` commit messages).
+shows `Merge PR6`, then write `docs/implementation-plan-pr7.md` and run the SDD
+cycle. Prior rulings are in `.superpowers/sdd/implementation-plan-pr{1,2,3,4}/
+progress.md` (PR5a, PR5b, and PR6's own workspaces were deleted per the SDD skill's
+finish step — their rulings are summarized in the sections above and in the `Merge
+PR5a`/`Merge PR5b`/`Merge PR6` commit messages).
