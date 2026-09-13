@@ -8,6 +8,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
 
 from _fakes import FakeToolCallingModel, ai_tool_call
+from _full_case import fake_rag_embedder
 from pa_copilot.agents.medical_necessity import build_medical_necessity_node
 from pa_copilot.schemas import BenefitResult, CriteriaCitation, NecessityAssessment, PARequest
 
@@ -44,7 +45,12 @@ async def test_medical_necessity_calls_rag_when_indeterminate():
         structured_responses=[expected],
     )
     node = build_medical_necessity_node(mcp_tools=[criteria_check], model=model)
-    update = await node(_state())
+    with fake_rag_embedder():
+        # FakeEmbedder, not the real BgeEmbedder -- this test scripts a real
+        # call to search_clinical_guidance, and the real model's cold load
+        # sits close to worker_timeout_seconds's 30s default under load,
+        # causing an intermittent flake (docs/BUILD_LOG.md's PR6/PR7 notes).
+        update = await node(_state())
     assert update["necessity"] == expected
     assert update["retrieved_criteria"] == [citation]
 
