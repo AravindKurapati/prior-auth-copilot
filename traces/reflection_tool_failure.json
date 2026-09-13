@@ -1,0 +1,46 @@
+{
+  "schema_version": "1",
+  "case_id": "case-reflection-tool-failure-recovers",
+  "route_history": [
+    {
+      "from_node": "supervisor",
+      "to_node": "benefit_check",
+      "reason": "deterministic guardrail -> benefit_check"
+    },
+    {
+      "from_node": "supervisor",
+      "to_node": "benefit_check",
+      "reason": "deterministic guardrail -> benefit_check"
+    },
+    {
+      "from_node": "supervisor",
+      "to_node": "medical_necessity",
+      "reason": "deterministic guardrail -> medical_necessity"
+    },
+    {
+      "from_node": "supervisor",
+      "to_node": "decision_draft",
+      "reason": "necessity clearly met; ready to draft"
+    },
+    {
+      "from_node": "supervisor",
+      "to_node": "FINISH",
+      "reason": "deterministic guardrail -> FINISH"
+    }
+  ],
+  "tool_failures": [
+    {
+      "tool": "benefit_lookup",
+      "error": "mcp transient failure (attempt 3)",
+      "attempt": 1
+    }
+  ],
+  "replan_count": 1,
+  "decision": {
+    "disposition": "approve",
+    "cited_criteria": [],
+    "reviewer_summary": "Criteria met on mechanical screen; recommend approval pending sign-off.",
+    "confidence": 0.9,
+    "human_review_required": true
+  }
+}
