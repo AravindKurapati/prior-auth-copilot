@@ -11,6 +11,7 @@ import dataclasses
 import json
 import subprocess
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aiosqlite
@@ -18,10 +19,10 @@ import typer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 
-from pa_copilot.config import get_settings
+from pa_copilot.config import Settings, get_settings
 from pa_copilot.graph import make_graph
 from pa_copilot.mcp_client import build_client, load_pa_tools, pa_session
-from pa_copilot.memory.store import memory_store, open_memory_store
+from pa_copilot.memory.store import PolicyStore, memory_store, open_memory_store
 from pa_copilot.rag import corpus
 from pa_copilot.rag.index import build_index
 from pa_copilot.schemas import SampleSubmission
@@ -39,15 +40,50 @@ def _parse_namespace(namespace: str) -> tuple[str, ...]:
     return tuple(namespace.split(","))
 
 
-async def _build_graph_for_case(store, checkpointer):
-    """Real MCP tools over one live stdio session, wired into the real compiled
-    graph. Kept as one seam so tests can monkeypatch it wholesale with a fake
-    model + FAKE_MCP_TOOLS (see tests/_full_case.py) without touching the rest
-    of a command's logic."""
+def _real_embedder(settings: Settings):
+    """The same embedder construction rag/index.py's `_resolve` uses -- lazy
+    (no model load until first embed call), so importing/constructing this is
+    cheap even when a command never ends up calling it."""
+    from pa_copilot.rag.embedder import BgeEmbedder  # noqa: PLC0415
+
+    return BgeEmbedder(settings.embedding_model)
+
+
+@asynccontextmanager
+async def _open_state(settings: Settings):
+    """One aiosqlite connection + one PolicyStore, held open for the caller's
+    whole graph invocation (design.md §3.7 -- both must stay open for the
+    graph's lifetime, never closed via `from_conn_string`'s `__aexit__`)."""
+    conn = await aiosqlite.connect(settings.state_db)
+    try:
+        checkpointer = AsyncSqliteSaver(conn)
+        with memory_store(settings.memory_db, settings=settings, embedder=_real_embedder(settings)) as store:
+            yield checkpointer, store
+    finally:
+        await conn.close()
+
+
+@asynccontextmanager
+async def _open_mcp_tools():
+    """One live stdio MCP session for the caller's whole use of the returned
+    tools -- the session (and its subprocess) stays open until the `async with`
+    block exits, so every tool call inside it reuses the same live process
+    instead of one that already closed."""
     client = build_client()
     async with pa_session(client) as session:
-        mcp_tools = await load_pa_tools(session=session)
-        return await make_graph(store=store, checkpointer=checkpointer, mcp_tools=mcp_tools)
+        yield await load_pa_tools(session=session)
+
+
+@asynccontextmanager
+async def _open_graph(store: PolicyStore, checkpointer):
+    """Real MCP tools over one live stdio session, wired into the real compiled
+    graph, kept open for the whole `async with` block -- the graph must not be
+    used after this block exits (its tools' underlying session would already be
+    closed). Kept as one seam so tests can monkeypatch it wholesale with a fake
+    model + FAKE_MCP_TOOLS (see tests/_full_case.py) without touching the rest
+    of a command's logic."""
+    async with _open_mcp_tools() as mcp_tools:
+        yield await make_graph(store=store, checkpointer=checkpointer, mcp_tools=mcp_tools)
 
 
 @app.command()
@@ -94,7 +130,9 @@ def memory_search(namespace: str, query: str, limit: int = 5) -> None:
     """Semantic/keyword search a memory namespace."""
     ns = _parse_namespace(namespace)
     settings = get_settings()
-    store = open_memory_store(settings.memory_db, settings=settings, semantic=True)
+    store = open_memory_store(
+        settings.memory_db, settings=settings, semantic=True, embedder=_real_embedder(settings)
+    )
     try:
         items = asyncio.run(store.asearch(ns, query=query, limit=limit))
         for item in items:
@@ -142,33 +180,43 @@ def submit(
     mid = member_id or submission.member_id
 
     async def _run():
-        conn = await aiosqlite.connect(settings.state_db)
-        try:
-            checkpointer = AsyncSqliteSaver(conn)
-            with memory_store(settings.memory_db, settings=settings) as store:
-                graph = await _build_graph_for_case(store, checkpointer)
-                state = new_case_state(case_id, sid, mid, submission.raw_provider_text)
-                thread = {"configurable": {"thread_id": case_id}}
-                tracer = RunTracer(
-                    settings.traces_dir,
-                    case_id,
-                    redact_values=default_redact_values(Path(settings.data_dir)),
-                    session_id=sid,
+        async with _open_state(settings) as (checkpointer, store):
+            thread = {"configurable": {"thread_id": case_id}}
+            existing = await checkpointer.aget_tuple(thread)
+            if existing is not None:
+                typer.echo(
+                    f"case_id={case_id} already has a checkpoint (from a prior "
+                    f"submit/resume) -- use `pac resume {case_id}` instead of "
+                    "re-submitting, to avoid running fresh state against an "
+                    "already-in-progress thread.",
+                    err=True,
                 )
-                result = await graph.ainvoke(state, config=thread)
-                decision = result.get("decision")
-                for step in result.get("route_history") or []:
+                raise typer.Exit(code=1)
+
+            tracer = RunTracer(
+                settings.traces_dir,
+                case_id,
+                redact_values=default_redact_values(Path(settings.data_dir)),
+                session_id=sid,
+            )
+            result = None
+            try:
+                async with _open_graph(store, checkpointer) as graph:
+                    state = new_case_state(case_id, sid, mid, submission.raw_provider_text)
+                    result = await graph.ainvoke(state, config=thread)
+            finally:
+                for step in (result or {}).get("route_history") or []:
                     tracer.event(step.to_node, "route", {"reason": step.reason})
+                decision = (result or {}).get("decision")
                 tracer.finish(decision=decision.model_dump() if decision else None)
-                typer.echo(f"case_id={case_id}")
-                if decision:
-                    typer.echo(json.dumps(decision.model_dump(), indent=2))
-                elif "__interrupt__" in result:
-                    typer.echo(f"paused -- resume with: pac resume {case_id}")
-                else:
-                    typer.echo("no decision reached (see trace for detail)")
-        finally:
-            await conn.close()
+
+            typer.echo(f"case_id={case_id}")
+            if decision:
+                typer.echo(json.dumps(decision.model_dump(), indent=2))
+            elif "__interrupt__" in (result or {}):
+                typer.echo(f"paused -- resume with: pac resume {case_id}")
+            else:
+                typer.echo("no decision reached (see trace for detail)")
 
     asyncio.run(_run())
 
@@ -184,20 +232,29 @@ def resume(case_id: str, value: str = typer.Argument("approved")) -> None:
     settings = get_settings()
 
     async def _run():
-        conn = await aiosqlite.connect(settings.state_db)
-        try:
-            checkpointer = AsyncSqliteSaver(conn)
-            with memory_store(settings.memory_db, settings=settings) as store:
-                graph = await _build_graph_for_case(store, checkpointer)
-                thread = {"configurable": {"thread_id": case_id}}
-                result = await graph.ainvoke(Command(resume=value), config=thread)
-                decision = result.get("decision")
-                if decision:
-                    typer.echo(json.dumps(decision.model_dump(), indent=2))
-                else:
-                    typer.echo("no decision -- case may still be paused or incomplete")
-        finally:
-            await conn.close()
+        async with _open_state(settings) as (checkpointer, store):
+            thread = {"configurable": {"thread_id": case_id}}
+            tracer = RunTracer(
+                settings.traces_dir,
+                case_id,
+                redact_values=default_redact_values(Path(settings.data_dir)),
+            )
+            result = None
+            try:
+                async with _open_graph(store, checkpointer) as graph:
+                    result = await graph.ainvoke(Command(resume=value), config=thread)
+            finally:
+                for step in (result or {}).get("route_history") or []:
+                    tracer.event(step.to_node, "route", {"reason": step.reason})
+                decision = (result or {}).get("decision")
+                tracer.finish(decision=decision.model_dump() if decision else None)
+
+            if decision:
+                typer.echo(json.dumps(decision.model_dump(), indent=2))
+            elif "__interrupt__" in (result or {}):
+                typer.echo(f"paused again -- resume with: pac resume {case_id}")
+            else:
+                typer.echo("no decision -- case may still be incomplete")
 
     asyncio.run(_run())
 
@@ -224,15 +281,21 @@ def run_all() -> None:
     ingest()
     settings = get_settings()
     samples = sorted(Path(settings.samples_dir).glob("*.json"))
+    failed: set[Path] = set()
     for sample in samples:
         typer.echo(f"--- submitting {sample.name} ---")
         try:
             submit(sample, session_id=None, member_id=None)
         except Exception as exc:  # noqa: BLE001 -- one bad sample must not abort the battery
             typer.echo(f"  FAILED: {exc}", err=True)
+            failed.add(sample)
     persistence_test()
-    if samples:
-        compare(samples[0])
+    remaining = [s for s in samples if s not in failed]
+    if remaining:
+        try:
+            compare(remaining[0])
+        except Exception as exc:  # noqa: BLE001 -- compare is illustrative, not a hard gate
+            typer.echo(f"compare FAILED: {exc}", err=True)
 
 
 @app.command()
@@ -246,33 +309,32 @@ def compare(sample_path: Path) -> None:
     submission = SampleSubmission(**raw)
 
     async def _run():
-        conn = await aiosqlite.connect(settings.state_db)
-        try:
-            checkpointer = AsyncSqliteSaver(conn)
-            with memory_store(settings.memory_db, settings=settings) as store:
-                graph = await _build_graph_for_case(store, checkpointer)
+        async with _open_state(settings) as (checkpointer, store):
+            case_id = f"{submission.case_id}-multi"
+            thread = {"configurable": {"thread_id": case_id}}
+            async with _open_mcp_tools() as mcp_tools:
+                graph = await make_graph(store=store, checkpointer=checkpointer, mcp_tools=mcp_tools)
                 state = new_case_state(
-                    f"{submission.case_id}-multi", submission.session_id,
-                    submission.member_id, submission.raw_provider_text,
+                    case_id, submission.session_id, submission.member_id,
+                    submission.raw_provider_text,
                 )
-                thread = {"configurable": {"thread_id": f"{submission.case_id}-multi"}}
                 multi_result = await graph.ainvoke(state, config=thread)
                 multi_decision = multi_result.get("decision")
 
-                client = build_client()
-                async with pa_session(client) as session:
-                    mcp_tools = await load_pa_tools(session=session)
-                    single_decision = await run_single_agent(
-                        submission.raw_provider_text, submission.member_id,
-                        mcp_tools=mcp_tools, store=store,
-                    )
+                single_decision = await run_single_agent(
+                    submission.raw_provider_text, submission.member_id,
+                    mcp_tools=mcp_tools, store=store,
+                )
 
-                typer.echo("multi-agent decision:")
-                typer.echo(json.dumps(multi_decision.model_dump() if multi_decision else None, indent=2))
-                typer.echo("single-agent decision:")
-                typer.echo(json.dumps(single_decision.model_dump(), indent=2))
-        finally:
-            await conn.close()
+            typer.echo("multi-agent decision:")
+            if multi_decision:
+                typer.echo(json.dumps(multi_decision.model_dump(), indent=2))
+            elif "__interrupt__" in multi_result:
+                typer.echo(f"paused -- resume with: pac resume {case_id}")
+            else:
+                typer.echo("null (no decision reached)")
+            typer.echo("single-agent decision:")
+            typer.echo(json.dumps(single_decision.model_dump(), indent=2))
 
     asyncio.run(_run())
 

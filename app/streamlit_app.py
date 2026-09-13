@@ -45,25 +45,16 @@ def _memory_panel_rows(working_memory: dict | None, long_term_hits: list[dict] |
 
 
 async def _run_one_case(raw_provider_text: str, case_id: str, session_id: str, member_id: str) -> dict:
-    import aiosqlite
-    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-
-    from pa_copilot.cli import _build_graph_for_case
+    from pa_copilot.cli import _open_graph, _open_state
     from pa_copilot.config import get_settings
-    from pa_copilot.memory.store import memory_store
     from pa_copilot.state import new_case_state
 
     settings = get_settings()
-    conn = await aiosqlite.connect(settings.state_db)
-    try:
-        checkpointer = AsyncSqliteSaver(conn)
-        with memory_store(settings.memory_db, settings=settings) as store:
-            graph = await _build_graph_for_case(store, checkpointer)
+    async with _open_state(settings) as (checkpointer, store):
+        async with _open_graph(store, checkpointer) as graph:
             state = new_case_state(case_id, session_id, member_id, raw_provider_text)
             thread = {"configurable": {"thread_id": case_id}}
             return await graph.ainvoke(state, config=thread)
-    finally:
-        await conn.close()
 
 
 def main() -> None:

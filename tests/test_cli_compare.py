@@ -25,13 +25,14 @@ def test_compare_prints_both_decisions(tmp_path, monkeypatch, fake_embedder):
     stub_summarizer(monkeypatch)
 
     case = build_clear_cut_case()
+    monkeypatch.setattr("pa_copilot.cli._real_embedder", lambda settings: fake_embedder)
 
-    async def fake_build_graph_for_case(store, checkpointer):
+    async def fake_make_graph(*, store, checkpointer, mcp_tools, model=None, settings=None):
         return await make_graph(
-            store=store, checkpointer=checkpointer, mcp_tools=FAKE_MCP_TOOLS, model=case.model,
+            store=store, checkpointer=checkpointer, mcp_tools=mcp_tools, model=case.model,
         )
 
-    monkeypatch.setattr("pa_copilot.cli._build_graph_for_case", fake_build_graph_for_case)
+    monkeypatch.setattr("pa_copilot.cli.make_graph", fake_make_graph)
 
     single_decision = PADecision(
         disposition="approve", cited_criteria=[], reviewer_summary="single-agent ok",

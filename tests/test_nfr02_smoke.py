@@ -4,6 +4,7 @@ directly -- distinct from tests/test_cli_submit_resume.py's CLI-plumbing test.""
 
 import json
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -27,12 +28,14 @@ def test_pac_submit_produces_a_schema_valid_decision(tmp_path, monkeypatch, fake
 
     case = build_clear_cut_case()
 
-    async def fake_build_graph_for_case(store, checkpointer):
-        return await make_graph(
+    @asynccontextmanager
+    async def fake_open_graph(store, checkpointer):
+        yield await make_graph(
             store=store, checkpointer=checkpointer, mcp_tools=FAKE_MCP_TOOLS, model=case.model,
         )
 
-    monkeypatch.setattr("pa_copilot.cli._build_graph_for_case", fake_build_graph_for_case)
+    monkeypatch.setattr("pa_copilot.cli._open_graph", fake_open_graph)
+    monkeypatch.setattr("pa_copilot.cli._real_embedder", lambda settings: fake_embedder)
 
     sample = {
         "case_id": case.case_id,

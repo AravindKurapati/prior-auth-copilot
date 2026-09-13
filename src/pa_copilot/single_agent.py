@@ -10,6 +10,7 @@ from __future__ import annotations
 from langchain_core.tools import BaseTool
 
 from pa_copilot.agents._react import get_agent_model, get_lite_agent_model
+from pa_copilot.config import get_settings
 from pa_copilot.memory.store import PolicyStore
 from pa_copilot.memory.tools import build_memory_tools
 from pa_copilot.rag.tool import search_clinical_guidance
@@ -38,12 +39,19 @@ async def run_single_agent(
     tools = attribute_tool_errors(
         [*mcp_tools, search_clinical_guidance, manage, search_member]
     )
+    settings = get_settings()
     _messages, decision = await run_worker_react_resilient(
         model or get_agent_model(),
         tools,
         system_prompt=_SYSTEM_PROMPT,
         messages=[("user", raw_provider_text)],
         response_format=PADecision,
+        # A single agent does all four workers' combined work (intake +
+        # benefit_check + medical_necessity + decision_draft) in ONE ReAct loop,
+        # so it needs the graph's own recursion_limit, not one worker's default
+        # (10) -- that default is sized for a single specialized worker's turn,
+        # not this baseline's whole-case loop.
+        recursion_limit=settings.recursion_limit,
         # Deferred like every PR6 worker: only build a real lite fallback when
         # the caller didn't already supply a substitute `model` -- constructing
         # get_lite_agent_model() unconditionally would eagerly hit real Google

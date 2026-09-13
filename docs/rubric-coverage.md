@@ -23,7 +23,7 @@ committed repository evidence only.
 | Cross-session persistence (Deterministic) | 6 | `pac persistence-test` (PR7), `scripts/run_persistence_test.py`, `traces/memory_persistence.log` | Done (PR4, PR7) |
 | Eviction policy | 3 | `memory/policy.py`, `tests/test_ac08_eviction.py` | Done (PR4) |
 | Custom MCP server (Deterministic) | 6 | `mcp_server/server.py` (3 tools, 1 resource + index) | Done (PR2) |
-| Adapter integration + tool-call log | 5 | `mcp_client.py`, `tests/test_ac10_mcp_integration.py`, `traces/mcp_toolcall_transcript.md`, `traces/mcp_tool_calls.jsonl`, `scripts/mcp_transcript_demo.py` (PR7) | Done (PR2, PR7) |
+| Adapter integration + tool-call log | 5 | `mcp_client.py`, `tests/test_ac10_mcp_integration.py` (real per-tool adapter calls, including a direct in-graph worker-factory call, PR2/PR5b), `traces/mcp_toolcall_transcript.md`/`mcp_tool_calls.jsonl` (genuine tool call/result, reproducible via `scripts/mcp_transcript_demo.py`, PR7) | Done (PR2, PR5b, PR7) — narrative agent turns in the transcript stay representative; a full compiled-graph run through a real MCP session AND a real LLM together remains deferred (no `GEMINI_API_KEY` in this environment, per `specs/acceptance-criteria.md`'s AC-10 row) |
 | Integration decision | 3 | `docs/integration-decision.md` | Done (PR2) |
 | Agentic-RAG tool | 4 | `rag/tool.py::search_clinical_guidance`, `tests/test_ac11_agentic_rag.py`, `traces/agentic_rag_decision.md` | Done (PR3, PR5) |
 | Reproducibility / secrets | 4 | `pac all` (single documented command, PR7), README quick-start, `.github/workflows/tests.yml` (PR7), `tests/test_nfr01_no_secrets.py`, `tests/test_nfr02_smoke.py` (PR7) | Done (PR1, PR7) |
