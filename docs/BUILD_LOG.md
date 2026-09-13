@@ -447,51 +447,94 @@ skill's finish step — summarized here):**
 
 ---
 
-## NEXT: PR7 — Interfaces  (branch `feat/interfaces`, off `main` @ `c5f9677`)
+## PR7 — Interfaces  (merged `af75f5e`)
 
-**Scope (design.md §10):** `cli.py` (`pac` — `ingest`, `submit`, `resume`, `memory`,
-`persistence-test`, `compare`, `demo`, `all`), `app/streamlit_app.py`, the full
-genuine MCP transcript (needs a real `GEMINI_API_KEY`, currently representative),
-`single_agent.py` + `pac compare`, `docs/{single-vs-multi-agent,agent-patterns,
-rubric-coverage}.md`, README quick-start, CI (`.github/workflows/tests.yml`). Closes
-AC-10 (full), NFR-01, NFR-02, NFR-04 (full trace-schema validation across `traces/`),
-NFR-06.
+Closes **AC-10 (full), NFR-01, NFR-02, NFR-04, NFR-06**. `cli.py` — Typer app `pac`
+with `ingest`, `submit`, `resume`, `memory`, `persistence-test`, `compare`, `demo`,
+`all`; `_open_state`/`_open_graph`/`_open_mcp_tools` async-context-manager helpers
+keep one live MCP stdio session + checkpointer/store open for a whole graph
+invocation; `_thread_status(graph, thread)` classifies a case_id's thread as
+new/paused/finished via `graph.aget_state(thread).next`/`.created_at` (empirically
+verified against all three states) so `submit`/`compare` can refuse to
+resubmit/re-run with the RIGHT advice (`pac resume` only when genuinely paused).
+`app/streamlit_app.py` — routing trail, artifact viewer, memory panel, built from
+pure `_route_rows`/`_artifact_rows`/`_memory_panel_rows` functions sharing
+`cli.py`'s `_open_graph`/`_open_state`. `single_agent.py` — `run_single_agent` binds
+the same MCP tools + `search_clinical_guidance`/memory tools onto one
+`run_worker_react_resilient` call (no supervisor/routing), wired into `pac compare`
+alongside the multi-agent graph over one shared MCP session. `scripts/
+mcp_transcript_demo.py` regenerates a genuine (not hand-written) MCP tool-call
+transcript from a real adapter session → `traces/mcp_toolcall_transcript.md`/
+`mcp_tool_calls.jsonl`. `docs/single-vs-multi-agent.md`, `docs/agent-patterns.md`
+new; `docs/rubric-coverage.md` rewritten as a real 22-parameter table (AC-10 row
+corrected to not overstate: a full compiled-graph run through both a real MCP
+session AND a real LLM together stays deferred — no `GEMINI_API_KEY` in this
+environment). `.github/workflows/tests.yml` — ruff + fast pytest on push/PR,
+Python 3.11. 268 tests pass, ruff clean.
 
-**`pac resume` must rely on PR6's existing mechanism, not re-invent one:**
-`human_review.py`'s node already resets `supervisor_hops`/`replan_count` to 0 on any
-resume, tested without `pac resume` existing at all
-(`tests/test_agent_human_review.py::test_resume_resets_hop_and_replan_counters`,
-`tests/test_ac05_checkpointer.py::test_resume_completes_without_a_manual_hop_reset`).
-`cli.py`'s job is just `graph.ainvoke(Command(resume=...), config=...)` on a fresh
-process per design.md §3.7 — no new reset logic belongs in the CLI layer.
+**Process note:** per-task review was dropped for this PR (budget), keeping only
+one final whole-branch review before merge — a deliberate scope reduction, agreed
+with the user in advance. This does not weaken any AC/NFR: the rubric scores
+committed evidence (tests, traces, docs), not review cadence, and the merge gate
+was still "no unresolved Critical/Important finding," same as every prior PR.
 
-**Also worth doing in PR7 or as a quick fix before it, independent of new scope**
-(see PR6's parked items above): switch `test_medical_necessity_calls_rag_when_
-indeterminate` to `FakeEmbedder` (matches every other RAG test's convention) so it
-stops sitting close to `worker_timeout_seconds`'s 30s default on a slow/cold model
-load.
+Key bugs caught and fixed, all at the final whole-branch review (no per-task
+review this time, so everything surfaced at once — see the process note above):
+**Critical** — `_build_graph_for_case` returned the compiled graph from *inside*
+`async with pa_session(...)`, so the MCP subprocess was already closed before any
+caller could use the graph; every real (non-mocked) CLI invocation would break on
+its first live tool call. Fixed by converting it to an `@asynccontextmanager`
+(`_open_graph`) and updating every call site to `async with _open_graph(...) as
+graph`. Plus 9 Important/Moderate findings in the same pass: missing traces on
+resume/exception, `pac all` aborting the whole run on one failed `compare`, no real
+embedder ever passed anywhere (semantic memory silently disabled in every real
+run), `compare()` not handling `__interrupt__`, non-idempotent `case_id`-as-
+`thread_id` reuse, `single_agent.py`'s too-low `recursion_limit`, 4x duplicated
+resource-lifecycle scaffolding, and `rubric-coverage.md` overstating AC-10 — all
+fixed in one fix-wave commit (`165553f`).
 
-**Resume:** `cd D:/Aru/NYU/Virtusa/prior-auth-copilot`, confirm `git log --first-parent`
-shows `Merge PR6`, then write `docs/implementation-plan-pr7.md` and run the SDD
-cycle. Prior rulings are in `.superpowers/sdd/implementation-plan-pr{1,2,3,4}/
-progress.md` (PR5a, PR5b, and PR6's own workspaces were deleted per the SDD skill's
-finish step — their rulings are summarized in the sections above and in the `Merge
-PR5a`/`Merge PR5b`/`Merge PR6` commit messages).
+A scoped re-review of that fix wave (checking only the diff it introduced, not the
+whole branch again) found 3 more issues, one of them a design bug and not just a
+missed edge case: the idempotency guard used mere checkpoint *existence*
+(`aget_tuple`), which can't distinguish paused from finished — a genuinely
+completed case_id got told to `pac resume` (wrong advice, and the CLI's own
+`_thread_status` docstring/tests now assert the opposite), and `typer.Exit` was
+being swallowed by `run_all()`'s bare `except Exception`, breaking `pac all`'s
+re-runnability. `compare()` had no equivalent guard at all. `_real_embedder`'s
+docstring claimed laziness/cheapness that wasn't true in practice (`memory_store.
+setup()` eagerly calls `embed_query`). Fixed with the `aget_state`-based
+`_thread_status` helper described above, `compare()` gaining the same guard, and a
+corrected docstring — commit `80f38d1`. This second fix wave was NOT sent for a
+further re-review pass (user call, given its narrow scope and its own dedicated
+new test coverage) before merging.
 
-**Operational lessons from PR6, worth applying again in PR7 (not just historical —
-see the `feedback_sdd-under-token-pressure` memory for the full writeup):**
-- If a subagent implementer stalls twice (ends its turn mid-task with no commit, or
-  runs many minutes with no output after being resumed), don't re-dispatch a third
-  time — read its actual diff on disk, verify what's there is correct, and finish
-  the task directly rather than discarding real work.
-- Prefer targeted test files while iterating; run the full fast suite once at
-  natural checkpoints (before a task's final commit, before the final review,
-  before/after merge) rather than after every small change.
-- The moment a backgrounded shell command's output is no longer needed, kill it
-  explicitly in that same turn — don't rely on remembering it later. A forgotten
-  `find /`-style command ran unmanaged for 3+ hours during PR6 and was the real
-  cause of most of a session's "mysterious" test slowness, not the code.
-- If per-task review needs to be dropped for budget reasons, keep the final
-  whole-branch review (most capable model) — it is what has caught at least one
-  real Critical/Important bug in every PR since PR4, including 2 in PR6 across
-  exactly the tasks that skipped per-task review.
+---
+
+## NEXT: PR8 — Good-to-Haves  (branch TBD, off `main` @ `af75f5e`)
+
+**Scope (docs/rubric-coverage.md's "Good-to-Haves" line, not separately scored):**
+a 2nd MCP server, a criteria-met fast-path, an importance-weighted background
+memory manager, Streamlit memory-panel enrichment, and surfacing `pac compare`'s
+single-vs-multi distinction more directly in the UI. All 22 rubric parameters (100
+marks) are already `Done` as of PR7 — PR8 is polish, not required for the graded
+submission.
+
+**Resume:** `cd D:/Aru/NYU/Virtusa/prior-auth-copilot`, confirm `git log
+--first-parent` shows `Merge PR7`, then decide with the user which Good-to-Haves
+(if any) are worth the remaining time before treating this project as feature-complete.
+
+**Operational lessons from PR7, worth carrying forward:**
+- Dropping per-task review (budget-driven) meant all 10 fix-wave findings from
+  PR7's Task work surfaced in one place at the final review, followed by a second
+  round of 3 more in the fix wave itself — a scoped re-review of a fix wave is
+  worth doing by default when the fix wave itself was non-trivial (touched control
+  flow, not just a docstring or a single guard clause), even when per-task review
+  was otherwise skipped.
+- `aget_state(thread).next`/`.created_at` is the reliable way to distinguish
+  new/paused/finished LangGraph threads — verify empirically (a throwaway script
+  against all three states) rather than trusting checkpoint *existence* alone,
+  which conflates paused and finished.
+- When a stray/duplicate agent is caught mid-task (two writers touching the same
+  file), kill the redundant one immediately in that same turn rather than letting
+  it keep running in the background — see the `feedback_avoid-redundant-agents`
+  memory.
