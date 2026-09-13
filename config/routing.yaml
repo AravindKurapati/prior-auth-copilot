@@ -1,4 +1,9 @@
-max_replans: 2        # per-worker re-plan attempts before human_review
+max_replans: 2        # total replan attempts (tool-failure reroute OR low-confidence
+                       # loop-back share ONE counter) before forcing human_review
 max_hops: 12          # hard cap on supervisor turns per case
 recursion_limit: 40   # LangGraph graph recursion limit
 tau: 0.55             # medical-necessity confidence threshold
+worker_timeout_seconds: 30   # asyncio.wait_for around one worker's whole ReAct turn
+max_tool_retries: 3          # tenacity attempts (same model) before human_review-bound
+                              # replan; a separate single lite-model attempt covers a
+                              # structured-output (WorkerOutputError) failure specifically

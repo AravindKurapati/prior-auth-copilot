@@ -36,7 +36,15 @@ async def test_benefit_check_happy_path():
 
 
 @pytest.mark.asyncio
-async def test_benefit_check_tool_failure_sets_needs_replan():
+async def test_benefit_check_tool_failure_sets_needs_replan(monkeypatch):
+    # PR6: run_worker_react_resilient retries a WorkerToolError up to
+    # max_tool_retries times against the SAME FakeToolCallingModel, whose
+    # scripted queue is single-shot — a retry would hit an exhausted script
+    # and add real tenacity backoff delay for no reason in this test. Pin to
+    # 1 attempt: this test is about the single-failure contract, not retry
+    # behavior (that's test_reflection_resilience.py's job).
+    monkeypatch.setenv("PA_MAX_TOOL_RETRIES", "1")
+
     # Named "benefit_lookup" explicitly (matching the scripted ai_tool_call name)
     # rather than left as the plain function-derived name — a mismatch here
     # would make ToolNode treat the call as an unknown-tool dispatch instead of
@@ -55,3 +63,8 @@ async def test_benefit_check_tool_failure_sets_needs_replan():
     node = build_benefit_check_node(mcp_tools=[broken_benefit_lookup], model=model)
     update = await node(_state())
     assert update["needs_replan"] is True
+    # PR6 Task 1/2: benefit_check binds only 1 tool, so _best_effort_tool_name
+    # already got this right by luck pre-PR6 — still confirm
+    # attribute_tool_errors' real attribution matches here too, not just for
+    # the 2+-tool workers where the old guess actually failed.
+    assert update["tool_failures"][0].tool == "benefit_lookup"

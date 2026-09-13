@@ -1,0 +1,52 @@
+{
+  "schema_version": "1",
+  "case_id": "case-reflection-low-confidence-recovers",
+  "route_history": [
+    {
+      "from_node": "supervisor",
+      "to_node": "medical_necessity",
+      "reason": "deterministic guardrail -> medical_necessity"
+    },
+    {
+      "from_node": "supervisor",
+      "to_node": "medical_necessity",
+      "reason": "low confidence on first pass; broadening retrieval and reassessing"
+    },
+    {
+      "from_node": "supervisor",
+      "to_node": "decision_draft",
+      "reason": "necessity now clearly met"
+    },
+    {
+      "from_node": "supervisor",
+      "to_node": "FINISH",
+      "reason": "deterministic guardrail -> FINISH"
+    }
+  ],
+  "first_assessment": {
+    "criteria_status": "indeterminate",
+    "policy_id": "PA-MRI-LUMBAR",
+    "citations": [],
+    "unmet_requirements": [
+      "conservative-therapy duration not clearly documented"
+    ],
+    "confidence": 0.2,
+    "rationale": "mechanical check indeterminate; low confidence on first pass"
+  },
+  "final_assessment": {
+    "criteria_status": "met",
+    "policy_id": "PA-MRI-LUMBAR",
+    "citations": [],
+    "unmet_requirements": [],
+    "confidence": 0.9,
+    "rationale": "broader review confirms criteria met"
+  },
+  "replan_count": 1,
+  "decision": {
+    "disposition": "approve",
+    "cited_criteria": [],
+    "reviewer_summary": "Criteria met after reassessment; recommend approval pending sign-off.",
+    "confidence": 0.9,
+    "human_review_required": true
+  }
+}

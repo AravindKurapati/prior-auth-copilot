@@ -44,12 +44,45 @@ def get_agent_model(
     )
 
 
+def get_lite_agent_model(
+    *, temperature: float | None = None, settings: Settings | None = None
+) -> ChatGoogleGenerativeAI:
+    s = settings or get_settings()
+    return ChatGoogleGenerativeAI(
+        model=s.model_agent_lite,
+        temperature=s.temperature_agent if temperature is None else temperature,
+    )
+
+
+class AttributedToolError(Exception):
+    """Raised by a tool wrapped via reflection.attribute_tool_errors when THAT tool's
+    own execution fails -- carries the real tool name, unlike the bare exception
+    ToolNode(handle_tool_errors=False) propagates (see this module's top docstring).
+    run_worker_react catches this ahead of its generic except Exception fallback."""
+
+    def __init__(self, *, tool: str, original: Exception):
+        super().__init__(f"{tool}: {original}")
+        self.tool = tool
+        self.original = original
+
+
 class WorkerToolError(Exception):
     def __init__(self, *, tool: str, error: str, attempt: int = 1):
         super().__init__(f"{tool}: {error}")
         self.tool = tool
         self.error = error
         self.attempt = attempt
+
+
+class WorkerTimeoutError(WorkerToolError):
+    """A worker turn exceeded worker_timeout_seconds -- deliberately a
+    WorkerToolError subclass so every worker's existing `except WorkerToolError`
+    handler still catches it unchanged, but reflection.run_worker_react_resilient's
+    tenacity layer excludes it from retry (final whole-branch review, PR6):
+    a blown time budget isn't "transient" the way a flaky tool call is, and
+    retrying it 3x before giving up pushed worst-case per-node-visit latency to
+    max_tool_retries * worker_timeout_seconds -- an unbounded-feeling delay
+    before the supervisor-level reflection loop even gets a turn to react."""
 
 
 class WorkerOutputError(Exception):
@@ -114,7 +147,13 @@ async def run_worker_react(
         # Hit recursion_limit -- not a specific tool's fault either; keep it
         # out of WorkerToolError so callers don't misattribute a bogus tool.
         raise WorkerRecursionError(error=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001 -- normalize any remaining tool/model failure
+    except AttributedToolError as exc:
+        # A tool wrapped by reflection.attribute_tool_errors failed inside its own
+        # execution -- exc.tool is the REAL tool name (not a guess), exc.original the
+        # real underlying exception. Normalize to the same WorkerToolError shape every
+        # caller already expects.
+        raise WorkerToolError(tool=exc.tool, error=str(exc.original), attempt=1) from exc
+    except Exception as exc:  # noqa: BLE001 -- last-resort fallback for any UNWRAPPED tool
         raise WorkerToolError(tool=_best_effort_tool_name(tools, exc), error=str(exc)) from exc
     return result["messages"], result["structured_response"]
 

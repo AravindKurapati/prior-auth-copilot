@@ -9,6 +9,7 @@ from langchain_core.tools import tool
 
 from _fakes import FakeToolCallingModel, ai_tool_call
 from pa_copilot.agents.intake import build_intake_node
+from pa_copilot.config import get_settings
 from pa_copilot.context.quarantine import is_quarantined_message
 from pa_copilot.memory.tools import build_memory_tools
 from pa_copilot.schemas import PARequest
@@ -190,7 +191,21 @@ async def test_intake_missing_field_path_surfaces_missing_fields(memory_store):
 
 
 @pytest.mark.asyncio
-async def test_intake_tool_failure_sets_needs_replan(memory_store):
+async def test_intake_tool_failure_sets_needs_replan(memory_store, monkeypatch):
+    # PR6: run_worker_react_resilient retries a WorkerToolError up to
+    # max_tool_retries times against the SAME FakeToolCallingModel, whose
+    # scripted queue is single-shot — a retry would hit an exhausted script
+    # and fail a different (unattributed) way, masking the real attribution
+    # this test exists to prove. Pin to 1 attempt: this test is about the
+    # single-failure contract, not retry behavior (that's
+    # test_reflection_resilience.py's job). The memory_store fixture already
+    # called get_settings() during its own setup (before this test body ran),
+    # caching Settings with max_tool_retries=3 via lru_cache — clear it again
+    # here so run_worker_react_resilient's own get_settings() call picks up
+    # the env var just set, not the stale cached value.
+    monkeypatch.setenv("PA_MAX_TOOL_RETRIES", "1")
+    get_settings.cache_clear()
+
     @tool("provider_lookup")
     def broken_provider_lookup(npi: str) -> dict:
         """Look up a provider (broken)."""
@@ -209,3 +224,9 @@ async def test_intake_tool_failure_sets_needs_replan(memory_store):
     # applies here; the brief's `[...] or [...].error` guarded for either
     # shape, but the actual contract is attribute-only.
     assert update["tool_failures"][0].error
+    # PR6 Task 1/2: intake binds 2 tools (provider_lookup + search_member) —
+    # exactly the case _best_effort_tool_name could never get right (fell back
+    # to "unknown_tool" for any worker bound to 2+ tools). attribute_tool_errors
+    # now tags the failure with the REAL tool name via AttributedToolError.
+    assert update["tool_failures"][0].tool == "provider_lookup"
+    assert update["tool_failures"][0].tool != "unknown_tool"

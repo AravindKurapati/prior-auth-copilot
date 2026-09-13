@@ -32,6 +32,7 @@ class Settings:
     gemini_api_key: str | None
     model_agent: str
     model_summarizer: str
+    model_agent_lite: str
     temperature_agent: float
     state_db: str
     memory_db: str
@@ -51,6 +52,8 @@ class Settings:
     max_hops: int
     recursion_limit: int
     tau: float
+    worker_timeout_seconds: float
+    max_tool_retries: int
     memory: MemoryConfig
 
 
@@ -108,6 +111,9 @@ def load_settings(
         model_summarizer=os.environ.get(
             "PA_MODEL_SUMMARIZER", models.get("summarizer", "gemini-flash-lite-latest")
         ),
+        model_agent_lite=os.environ.get(
+            "PA_MODEL_AGENT_LITE", models.get("agent_lite", "gemini-flash-lite-latest")
+        ),
         temperature_agent=float(
             os.environ.get("PA_TEMPERATURE_AGENT", models.get("temperature_agent", 0.0))
         ),
@@ -137,6 +143,12 @@ def load_settings(
         max_hops=int(routing.get("max_hops", 12)),
         recursion_limit=int(routing.get("recursion_limit", 40)),
         tau=float(routing.get("tau", 0.55)),
+        worker_timeout_seconds=float(
+            os.environ.get("PA_WORKER_TIMEOUT_SECONDS", routing.get("worker_timeout_seconds", 30))
+        ),
+        max_tool_retries=int(
+            os.environ.get("PA_MAX_TOOL_RETRIES", routing.get("max_tool_retries", 3))
+        ),
         memory=_build_memory_config(memory),
     )
 
