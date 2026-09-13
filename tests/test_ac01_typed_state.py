@@ -1,3 +1,6 @@
+"""AC-01: the system is built on LangGraph with an explicit typed state object
+(TypedDict / Pydantic) shared across nodes -- PACaseState (state.py)."""
+
 import typing
 
 from langgraph.graph.message import add_messages
