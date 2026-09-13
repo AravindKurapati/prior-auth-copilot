@@ -80,6 +80,39 @@ async def test_decision_draft_defensive_fallback_when_necessity_missing(memory_s
 
 
 @pytest.mark.asyncio
+async def test_decision_draft_fast_path_when_not_covered(memory_store):
+    """PR8: design.md §3.3's short-circuit — benefit.covered=False is
+    determinative on its own, so necessity=None is a valid input, not a
+    defensive-fallback trigger."""
+    state = _state([])
+    state["benefit"] = BenefitResult(
+        covered=False, plan_id="PPO-100", requires_pa=True, network_status="in_network"
+    )
+    state["necessity"] = None
+    decision = PADecision(disposition="deny", cited_criteria=[], reviewer_summary="not covered",
+                           confidence=0.95, human_review_required=True)
+    model = FakeToolCallingModel(script=[AIMessage(content="drafted")], structured_responses=[decision])
+    node = build_decision_draft_node(store=memory_store, model=model)
+    update = await node(state)
+    assert update["decision"] == decision
+
+
+@pytest.mark.asyncio
+async def test_decision_draft_fast_path_when_no_pa_required(memory_store):
+    state = _state([])
+    state["benefit"] = BenefitResult(
+        covered=True, plan_id="PPO-100", requires_pa=False, network_status="in_network"
+    )
+    state["necessity"] = None
+    decision = PADecision(disposition="approve", cited_criteria=[], reviewer_summary="no PA required",
+                           confidence=0.95, human_review_required=True)
+    model = FakeToolCallingModel(script=[AIMessage(content="drafted")], structured_responses=[decision])
+    node = build_decision_draft_node(store=memory_store, model=model)
+    update = await node(state)
+    assert update["decision"] == decision
+
+
+@pytest.mark.asyncio
 async def test_decision_draft_model_timeout_degrades_instead_of_raising(memory_store, monkeypatch):
     """Final whole-branch review finding (PR6): decision_draft was the only one
     of the four workers not catching WorkerToolError, so a slow/hung model call

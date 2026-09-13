@@ -126,28 +126,20 @@ def should_search_guidance(
     return bool(unmet_requirements)
 
 
-@tool
-def search_clinical_guidance(query: str, service_code: str | None = None) -> list[dict]:
-    """Search the clinical-guidance corpus for medical-necessity criteria.
-
-    Call this from inside the agent loop when the mechanical criteria check is
-    ``indeterminate`` / ``not_found`` or leaves unmet requirements. ``query`` is a
-    natural-language description of what needs supporting; pass ``service_code``
-    to scope the search to one policy.
-
-    Returns a JSON-serializable list of citation dicts
-    (``source, clause_id, quote, relevance``), every one scoring at or above
-    ``rag_min_score``. An empty list is a valid "nothing relevant" answer and is
-    also what a *still-weak* retrieval returns after the one corrective rewrite —
-    PR5's worker reads empty citations as "still weak" → ``indeterminate`` →
-    ``human_review`` (uniform with the index-unavailable path).
+def search_clinical_guidance_impl(
+    query: str, service_code: str | None = None, *, embedder: Embedder | None = None
+) -> list[dict]:
+    """The retrieval body behind :func:`search_clinical_guidance` — factored out
+    (PR8) so the standalone ``pa-guidance`` MCP server (`mcp_server/
+    guidance_server.py`) can expose the same behavior over stdio without
+    duplicating the corrective-rewrite logic. ``embedder`` defaults to the same
+    lazy module-level singleton the LangChain tool uses when omitted.
     """
     settings = get_settings()
     min_score = settings.rag_min_score
+    emb = embedder or _get_tool_embedder()
     try:
-        hits = index.search(
-            query, service_code=service_code, embedder=_get_tool_embedder()
-        )
+        hits = index.search(query, service_code=service_code, embedder=emb)
         kept = [h for h in hits if h["score"] >= min_score]
         if not kept:
             # One corrective rewrite. Keep whichever of {original, rewritten}
@@ -158,9 +150,7 @@ def search_clinical_guidance(query: str, service_code: str | None = None) -> lis
             name = _service_name(service_code)
             if name:
                 rewritten = f"{rewritten} {name}"
-            rw_hits = index.search(
-                rewritten, service_code=service_code, embedder=_get_tool_embedder()
-            )
+            rw_hits = index.search(rewritten, service_code=service_code, embedder=emb)
             orig_top = hits[0]["score"] if hits else 0.0
             rw_top = rw_hits[0]["score"] if rw_hits else 0.0
             best = rw_hits if rw_top >= orig_top else hits
@@ -183,3 +173,22 @@ def search_clinical_guidance(query: str, service_code: str | None = None) -> lis
         ).model_dump()
         for h in kept
     ]
+
+
+@tool
+def search_clinical_guidance(query: str, service_code: str | None = None) -> list[dict]:
+    """Search the clinical-guidance corpus for medical-necessity criteria.
+
+    Call this from inside the agent loop when the mechanical criteria check is
+    ``indeterminate`` / ``not_found`` or leaves unmet requirements. ``query`` is a
+    natural-language description of what needs supporting; pass ``service_code``
+    to scope the search to one policy.
+
+    Returns a JSON-serializable list of citation dicts
+    (``source, clause_id, quote, relevance``), every one scoring at or above
+    ``rag_min_score``. An empty list is a valid "nothing relevant" answer and is
+    also what a *still-weak* retrieval returns after the one corrective rewrite —
+    PR5's worker reads empty citations as "still weak" → ``indeterminate`` →
+    ``human_review`` (uniform with the index-unavailable path).
+    """
+    return search_clinical_guidance_impl(query, service_code)

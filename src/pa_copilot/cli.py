@@ -185,6 +185,37 @@ def memory_show(namespace: str, key: str) -> None:
         store.conn.close()
 
 
+@memory_app.command("consolidate")
+def memory_consolidate(case_id: str) -> None:
+    """PR8 good-to-have: run the importance-weighted background memory
+    manager (memory/manager.py) over a finished/paused case's transcript.
+
+    Separate from decision_draft's synchronous critical-memory write on
+    deny -- this is an LLM-driven consolidation pass over the whole case,
+    run explicitly/out-of-band, never automatically inside `pac submit`/
+    `pac resume` (so it cannot regress either command's existing behavior).
+    """
+    from pa_copilot.memory.manager import build_case_memory_manager, enrich_case_memory
+
+    settings = get_settings()
+
+    async def _run():
+        async with _open_state(settings) as (checkpointer, store):
+            thread = {"configurable": {"thread_id": case_id}}
+            async with _open_graph(store, checkpointer) as graph:
+                status = await _thread_status(graph, thread)
+                if status == "new":
+                    typer.echo(f"case_id={case_id} has no recorded run yet.", err=True)
+                    raise typer.Exit(code=1)
+                snapshot = await graph.aget_state(thread)
+            messages = snapshot.values.get("messages") or []
+            manager = build_case_memory_manager(store)
+            updated = await enrich_case_memory(manager, messages)
+            typer.echo(f"consolidated {len(updated)} memory item(s) from case_id={case_id}")
+
+    asyncio.run(_run())
+
+
 @app.command("persistence-test")
 def persistence_test() -> None:
     """Run the cross-session persistence evidence script -> traces/memory_persistence.log."""
