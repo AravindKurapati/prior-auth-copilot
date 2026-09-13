@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "pa-copilot": {
+      "command": "python",
+      "args": ["-m", "pa_copilot.mcp_server"],
+      "cwd": "."
+    },
+    "pa-guidance": {
+      "command": "python",
+      "args": ["-m", "pa_copilot.mcp_server.guidance_server"],
+      "cwd": "."
+    }
+  }
+}
