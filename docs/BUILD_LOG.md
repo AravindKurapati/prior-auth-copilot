@@ -510,18 +510,56 @@ new test coverage) before merging.
 
 ---
 
-## NEXT: PR8 — Good-to-Haves  (branch TBD, off `main` @ `af75f5e`)
+## PR8 — Good-to-Haves  (worked directly on `main` @ `af75f5e`, no separate branch/PR merge)
 
 **Scope (docs/rubric-coverage.md's "Good-to-Haves" line, not separately scored):**
-a 2nd MCP server, a criteria-met fast-path, an importance-weighted background
-memory manager, Streamlit memory-panel enrichment, and surfacing `pac compare`'s
-single-vs-multi distinction more directly in the UI. All 22 rubric parameters (100
-marks) are already `Done` as of PR7 — PR8 is polish, not required for the graded
-submission.
+all 5 items done in one session, directly on `main` (no per-task subagent
+dispatch, no spec doc, no TDD-first ceremony — user call: ungraded polish on an
+already-100/100 branch doesn't warrant it; code written first, tests added
+immediately after each change, full suite + ruff run before calling it done).
 
-**Resume:** `cd D:/Aru/NYU/Virtusa/prior-auth-copilot`, confirm `git log
---first-parent` shows `Merge PR7`, then decide with the user which Good-to-Haves
-(if any) are worth the remaining time before treating this project as feature-complete.
+- **Criteria-met fast-path** (design.md §3.3, previously documented as
+  unreachable) — `supervisor.hard_route` now checks `benefit.covered`/
+  `benefit.requires_pa` before the necessity-None guardrail and routes straight
+  to `decision_draft` when the benefit check alone is determinative;
+  `decision_draft._benefit_is_determinative` handles `necessity=None` as a
+  valid input in exactly that case (previously always `needs_replan=True`).
+- **2nd MCP server** — `mcp_server/guidance_server.py`, a second independent
+  stdio FastMCP server exposing `search_clinical_guidance` (the agentic-RAG
+  search), sharing retrieval logic with the existing LangChain tool via an
+  extracted `rag/tool.py::search_clinical_guidance_impl` (no duplicated
+  corrective-rewrite logic). `mcp_client.py` gained `guidance_server_spec`,
+  `build_guidance_client`, `build_multi_client`, `guidance_session`,
+  `load_guidance_tools` — additive only, existing `pa`-server wiring in
+  `cli.py`/`graph.py`/`medical_necessity.py` untouched.
+- **Importance-weighted background memory manager** — `memory/manager.py`
+  wraps `langmem.create_memory_store_manager` (design.md §6.1's own named
+  Good-to-Have) over the `("pa","episodic")` namespace, with instructions
+  tagging every extracted memory `routine`/`notable`/`critical` per design.md
+  §6.3. Runs out-of-band via a new `pac memory consolidate <case_id>` command
+  reading a finished/paused case's checkpointed message history — deliberately
+  NOT auto-wired into `pac submit`/`pac resume` so it can't regress either.
+- **Streamlit memory-panel enrichment** — `_long_term_hits` (new) queries the
+  member's ranked long-term memories via `memory/policy.py::search_ranked`;
+  the panel previously always rendered an empty `long_term_hits` list.
+- **`pac compare` surfaced in the UI** — a "Compare single-agent vs
+  multi-agent" checkbox runs both the multi-agent graph and the single-agent
+  baseline (same pairing `pac compare` already runs) and renders a
+  same/different-disposition verdict via the new `_compare_rows`.
+
+~20 new tests across `test_supervisor.py`, `test_agent_decision_draft.py`,
+`test_pr8_guidance_mcp_server.py` (new), `test_memory_manager.py` (new),
+`test_streamlit_helpers.py`. The new MCP-server test deliberately stops at
+`list_tools()` over a real stdio round trip rather than a real `call_tool` —
+a real call would force the same slow/flaky real-embedding-model load already
+flagged above for `test_medical_necessity_calls_rag_when_indeterminate`;
+`search_clinical_guidance_impl` (the shared logic both callers hit) is proven
+correct in-process with `FakeEmbedder` instead. Full suite green, ruff clean.
+
+No `.mcp.json` exists in the repo root and none is needed — this app spawns
+both MCP servers itself programmatically (`mcp_client.py`'s
+`MultiServerMCPClient`), not through Claude Code's own MCP-server discovery
+mechanism.
 
 **Operational lessons from PR7, worth carrying forward:**
 - Dropping per-task review (budget-driven) meant all 10 fix-wave findings from

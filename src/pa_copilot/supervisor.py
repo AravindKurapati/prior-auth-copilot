@@ -27,12 +27,14 @@ state["benefit"], or decision_draft before medical_necessity had set
 state["necessity"] -- both reproduced as uncaught AttributeErrors in the two
 downstream workers. These two rules force the natural prerequisite order
 deterministically, without disturbing any guardrail already ordered above
-them. Note: this also makes design.md §3.3's documented decision_draft
-short-circuit (skipping medical_necessity when benefit.covered=False or
-benefit.requires_pa=False) currently unreachable -- necessity is now always
-forced before decision_draft. Re-enabling that optimization is out of scope
-for this fix wave; it requires decision_draft.py to handle necessity=None as a
-valid input, which is real design work for a future PR.
+them.
+
+PR8 good-to-have: design.md §3.3's documented decision_draft short-circuit
+(skipping medical_necessity when benefit.covered=False or
+benefit.requires_pa=False) is now re-enabled -- the necessity-None rule
+checks benefit first and routes straight to decision_draft when the benefit
+check alone is determinative; decision_draft.py's `_benefit_is_determinative`
+handles necessity=None as a valid input in exactly that case.
 """
 
 from __future__ import annotations
@@ -62,6 +64,12 @@ def hard_route(state: PACaseState, *, settings: Settings | None = None) -> Route
     if state.get("benefit") is None:
         return "benefit_check"
     if state.get("necessity") is None:
+        benefit = state.get("benefit")
+        if not (getattr(benefit, "covered", True) and getattr(benefit, "requires_pa", True)):
+            # PR8 good-to-have: design.md §3.3's fast-path, now re-enabled --
+            # decision_draft.py handles necessity=None when the benefit check
+            # alone is determinative (not covered, or no PA required).
+            return "decision_draft"
         return "medical_necessity"
     return None
 

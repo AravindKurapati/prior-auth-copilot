@@ -2,6 +2,8 @@
 single .with_structured_output(RouterDecision) call. No tools — the supervisor
 never calls MCP/RAG directly (design.md §3.2)."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from _fakes import FakeToolCallingModel
@@ -60,6 +62,25 @@ def test_hard_route_missing_benefit_goes_to_benefit_check():
 
 def test_hard_route_missing_necessity_goes_to_medical_necessity():
     assert hard_route({"request": {}, "benefit": {}, "necessity": None}) == "medical_necessity"
+
+
+def test_hard_route_not_covered_benefit_fast_paths_to_decision_draft():
+    """PR8: design.md §3.3's short-circuit, re-enabled."""
+    benefit = SimpleNamespace(covered=False, requires_pa=True)
+    state = {"request": {}, "benefit": benefit, "necessity": None}
+    assert hard_route(state) == "decision_draft"
+
+
+def test_hard_route_no_pa_required_benefit_fast_paths_to_decision_draft():
+    benefit = SimpleNamespace(covered=True, requires_pa=False)
+    state = {"request": {}, "benefit": benefit, "necessity": None}
+    assert hard_route(state) == "decision_draft"
+
+
+def test_hard_route_covered_and_requires_pa_benefit_still_needs_necessity():
+    benefit = SimpleNamespace(covered=True, requires_pa=True)
+    state = {"request": {}, "benefit": benefit, "necessity": None}
+    assert hard_route(state) == "medical_necessity"
 
 
 def test_hard_route_finished_decision_wins_over_missing_request():

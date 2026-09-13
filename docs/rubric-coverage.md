@@ -41,6 +41,9 @@ committed repository evidence only.
 | Agentic RAG & Reproducibility | 8 | PR3, PR5, PR7 | Done |
 | **TOTAL** | **100** | | |
 
-Good-to-Haves (not scored above; tracked separately, PR8): 2nd MCP server, criteria-met
-fast-path, importance-weighted background memory manager, Streamlit memory panel
-enrichment, `pac compare`'s single-vs-multi UI surfacing.
+Good-to-Haves (not scored above; PR8, all Done): 2nd MCP server
+(`mcp_server/guidance_server.py`), criteria-met fast-path (`supervisor.py`/
+`decision_draft.py`), importance-weighted background memory manager
+(`memory/manager.py`, `pac memory consolidate`), Streamlit memory panel enrichment
+(`app/streamlit_app.py::_long_term_hits`), `pac compare`'s single-vs-multi UI surfacing
+(`app/streamlit_app.py::_compare_rows`, compare-mode checkbox).

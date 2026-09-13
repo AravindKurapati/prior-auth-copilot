@@ -62,6 +62,23 @@ def pa_server_spec(
 PA_SERVER_SPEC: dict = pa_server_spec()
 
 
+def guidance_server_spec(
+    env: dict[str, str] | None = None, cwd: str | None = None
+) -> dict:
+    """The stdio connection spec for the second, independent ``guidance`` server
+    (PR8 good-to-have — see ``mcp_server/guidance_server.py``)."""
+    spec: dict[str, Any] = {
+        "command": sys.executable,
+        "args": ["-m", "pa_copilot.mcp_server.guidance_server"],
+        "transport": "stdio",
+    }
+    if env:
+        spec["env"] = {**get_default_environment(), **env}
+    if cwd:
+        spec["cwd"] = cwd
+    return {"guidance": spec}
+
+
 def build_client(
     env: dict[str, str] | None = None, cwd: str | None = None
 ) -> MultiServerMCPClient:
@@ -74,6 +91,23 @@ def build_client(
     return MultiServerMCPClient(pa_server_spec(env, cwd))
 
 
+def build_guidance_client(
+    env: dict[str, str] | None = None, cwd: str | None = None
+) -> MultiServerMCPClient:
+    """A :class:`MultiServerMCPClient` wired to the single ``guidance`` stdio
+    server (PR8)."""
+    return MultiServerMCPClient(guidance_server_spec(env, cwd))
+
+
+def build_multi_client(
+    env: dict[str, str] | None = None, cwd: str | None = None
+) -> MultiServerMCPClient:
+    """A :class:`MultiServerMCPClient` wired to **both** stdio servers (PR8) —
+    ``pa`` (structured lookups) and ``guidance`` (semantic search). Demonstrates
+    a genuine multi-server MCP topology in one client."""
+    return MultiServerMCPClient({**pa_server_spec(env, cwd), **guidance_server_spec(env, cwd)})
+
+
 @asynccontextmanager
 async def pa_session(
     client: MultiServerMCPClient | None = None,
@@ -84,6 +118,15 @@ async def pa_session(
     :func:`load_pa_tools` so every tool call reuses the one subprocess.
     """
     async with (client or build_client()).session("pa") as session:
+        yield session
+
+
+@asynccontextmanager
+async def guidance_session(
+    client: MultiServerMCPClient | None = None,
+) -> AsyncIterator[ClientSession]:
+    """One long-lived stdio session to the ``guidance`` server (PR8)."""
+    async with (client or build_guidance_client()).session("guidance") as session:
         yield session
 
 
@@ -100,6 +143,17 @@ async def load_pa_tools(
     if session is not None:
         return await load_mcp_tools(session)
     return await (client or build_client()).get_tools()
+
+
+async def load_guidance_tools(
+    client: MultiServerMCPClient | None = None,
+    session: ClientSession | None = None,
+) -> list[BaseTool]:
+    """Load the ``guidance`` MCP tools as LangChain tools (``search_clinical_guidance``,
+    PR8). Same session/sessionless split as :func:`load_pa_tools`."""
+    if session is not None:
+        return await load_mcp_tools(session)
+    return await (client or build_guidance_client()).get_tools()
 
 
 async def load_policy(policy_id: str, client: MultiServerMCPClient | None = None) -> str:
