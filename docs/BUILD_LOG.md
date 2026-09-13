@@ -12,8 +12,13 @@ ledgers are `specs/`.
   `superpowers:subagent-driven-development` skill (fresh implementer per task/batch, a task
   review after each, a whole-branch review on the strongest model before merge, one fix
   wave + one scoped re-review, then merge via `superpowers:finishing-a-development-branch`).
-- Local `--no-ff` merges to `main` are pre-authorized for this workflow. **Not pushed** —
-  no GitHub remote yet (deferred; user's choice was "new public GitHub repo, GitLab later").
+- Local `--no-ff` merges to `main` are pre-authorized for this workflow. **As of PR6's
+  merge, pushed to a public GitHub remote**: https://github.com/AravindKurapati/prior-auth-copilot
+  (`origin/main`, full existing history pushed as-is, no rewrite). PR1-6 were still
+  built entirely via local `--no-ff` merges with no remote involved — the remote only
+  now exists as a mirror/backup and an option for future PRs. Whether PR7+ open real
+  GitHub Pull Requests or keep merging locally-then-pushing is a per-PR call the user
+  makes, not a default — ask before assuming either way.
 - SDD ledgers with every ruling live in `.superpowers/sdd/implementation-plan-pr{N}/progress.md`
   (gitignored). Retained across the whole build for recovery + the rulings summary.
 
@@ -472,3 +477,21 @@ cycle. Prior rulings are in `.superpowers/sdd/implementation-plan-pr{1,2,3,4}/
 progress.md` (PR5a, PR5b, and PR6's own workspaces were deleted per the SDD skill's
 finish step — their rulings are summarized in the sections above and in the `Merge
 PR5a`/`Merge PR5b`/`Merge PR6` commit messages).
+
+**Operational lessons from PR6, worth applying again in PR7 (not just historical —
+see the `feedback_sdd-under-token-pressure` memory for the full writeup):**
+- If a subagent implementer stalls twice (ends its turn mid-task with no commit, or
+  runs many minutes with no output after being resumed), don't re-dispatch a third
+  time — read its actual diff on disk, verify what's there is correct, and finish
+  the task directly rather than discarding real work.
+- Prefer targeted test files while iterating; run the full fast suite once at
+  natural checkpoints (before a task's final commit, before the final review,
+  before/after merge) rather than after every small change.
+- The moment a backgrounded shell command's output is no longer needed, kill it
+  explicitly in that same turn — don't rely on remembering it later. A forgotten
+  `find /`-style command ran unmanaged for 3+ hours during PR6 and was the real
+  cause of most of a session's "mysterious" test slowness, not the code.
+- If per-task review needs to be dropped for budget reasons, keep the final
+  whole-branch review (most capable model) — it is what has caught at least one
+  real Critical/Important bug in every PR since PR4, including 2 in PR6 across
+  exactly the tasks that skipped per-task review.
